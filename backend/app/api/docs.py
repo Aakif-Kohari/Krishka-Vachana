@@ -46,22 +46,25 @@ def status_page(
         if firebase.is_configured
         else '<span class="badge badge-warn">using in-memory fallback</span>'
     )
+    version = settings.app_version
+    environment = settings.environment
+    api_prefix = settings.api_v1_prefix
     body = f"""
       <div class="card">
         <h2 style="margin-top:0;">Service status</h2>
         <table>
           <tr><th>Status</th><td><span class="badge badge-ok">running</span></td></tr>
-          <tr><th>Version</th><td><code>{{settings.app_version}}</code></td></tr>
-          <tr><th>Environment</th><td><code>{{settings.environment}}</code></td></tr>
-          <tr><th>Firebase</th><td>{{firebase_badge}}</td></tr>
+          <tr><th>Version</th><td><code>{version}</code></td></tr>
+          <tr><th>Environment</th><td><code>{environment}</code></td></tr>
+          <tr><th>Firebase</th><td>{firebase_badge}</td></tr>
         </table>
       </div>
       <div class="card">
         <h2 style="margin-top:0;">Links</h2>
         <p><a class="link" href="/docs">Interactive API docs (Swagger)</a></p>
         <p><a class="link" href="/redoc">API reference (ReDoc)</a></p>
-        <p><a class="link" href="{{settings.api_v1_prefix}}/health">Liveness check (JSON)</a></p>
-        <p><a class="link" href="{{settings.api_v1_prefix}}/health/ready">Readiness check (JSON)</a></p>
+        <p><a class="link" href="{api_prefix}/health">Liveness check (JSON)</a></p>
+        <p><a class="link" href="{api_prefix}/health/ready">Readiness check (JSON)</a></p>
       </div>
     """
     return HTMLResponse(page_shell("KisanSetu API - Status", body))
