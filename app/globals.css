@@ -1,0 +1,167 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+/* ─── Design Tokens ─────────────────────────────────── */
+:root {
+  /* Brand */
+  --color-primary-dark:   #123524;
+  --color-primary:        #1F6B45;
+  --color-primary-btn:    #2E8B57;
+  --color-primary-light:  #DDF3E6;
+  --color-primary-bg:     #F0FAF4;
+
+  /* Neutrals */
+  --color-text-main:      #17201B;
+  --color-text-secondary: #34413A;
+  --color-text-muted:     #68756D;
+  --color-placeholder:    #AAB4AE;
+  --color-border:         #D1D8D3;
+  --color-divider:        #E5EAE7;
+  --color-bg-light:       #F1F4F2;
+  --color-bg-page:        #F8FAF9;
+  --color-bg-card:        #FFFFFF;
+
+  /* Semantic */
+  --color-success:        #16803C;
+  --color-success-bg:     #E8F7ED;
+  --color-warning:        #B7791F;
+  --color-warning-bg:     #FFF6DE;
+  --color-error:          #C53030;
+  --color-error-bg:       #FDECEC;
+  --color-info:           #2563EB;
+  --color-info-bg:        #EAF2FF;
+
+  /* Shadows */
+  --shadow-sm:   0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md:   0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg:   0 10px 30px rgba(0,0,0,0.12);
+}
+
+/* ─── Reset / Base ───────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--color-text-main);
+  background-color: var(--color-bg-page);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Typography ─────────────────────────────────────── */
+.text-display { font-size: 40px; font-weight: 700; line-height: 48px; }
+.text-h1      { font-size: 32px; font-weight: 700; line-height: 40px; }
+.text-h2      { font-size: 24px; font-weight: 700; line-height: 32px; }
+.text-h3      { font-size: 20px; font-weight: 600; line-height: 28px; }
+.text-h4      { font-size: 18px; font-weight: 600; line-height: 24px; }
+.text-body-lg { font-size: 18px; font-weight: 400; line-height: 28px; }
+.text-body    { font-size: 16px; font-weight: 400; line-height: 24px; }
+.text-sm      { font-size: 14px; font-weight: 400; line-height: 20px; }
+.text-caption { font-size: 12px; font-weight: 500; line-height: 16px; }
+
+/* ─── Buttons ────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn:focus-visible { box-shadow: 0 0 0 3px rgba(46,139,87,0.35); }
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+
+.btn-primary {
+  background-color: var(--color-primary-btn);
+  color: #ffffff;
+}
+.btn-primary:hover { background-color: #267a4b; }
+
+.btn-secondary {
+  background-color: #ffffff;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+.btn-secondary:hover { background-color: var(--color-bg-light); }
+
+.btn-ghost {
+  background-color: transparent;
+  border: none;
+  color: var(--color-primary-btn);
+  height: 40px;
+}
+.btn-ghost:hover { background-color: var(--color-primary-bg); }
+
+/* ─── Cards ──────────────────────────────────────────── */
+.card {
+  background: var(--color-bg-card);
+  border-radius: 12px;
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+}
+
+/* ─── Badges / Status ────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.badge-confirmed  { background: #E8F7ED; color: #16803C; }
+.badge-waiting    { background: #FFF6DE; color: #B7791F; }
+.badge-processing { background: #EAF2FF; color: #2563EB; }
+.badge-cancelled  { background: #FDECEC; color: #C53030; }
+.badge-completed  { background: #DDF3E6; color: #174A32; }
+
+/* ─── Layout Utilities ───────────────────────────────── */
+.page-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+@media (max-width: 767px) {
+  .page-container { padding: 0 16px; }
+}
+
+/* ─── Fade / Slide Animations ────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+.animate-fade-up  { animation: fadeUp  0.55s ease both; }
+.animate-fade-in  { animation: fadeIn  0.45s ease both; }
+.animate-pulse-soft { animation: pulse-soft 2.5s ease-in-out infinite; }
+
+.delay-100 { animation-delay: 0.1s; }
+.delay-200 { animation-delay: 0.2s; }
+.delay-300 { animation-delay: 0.3s; }
+.delay-400 { animation-delay: 0.4s; }
+.delay-500 { animation-delay: 0.5s; }
+.delay-600 { animation-delay: 0.6s; }
