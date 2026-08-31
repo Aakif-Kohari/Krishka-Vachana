@@ -18,6 +18,9 @@ class FarmerRepository(ABC):
     def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]: ...
 
     @abstractmethod
+    def reserve_aadhaar(self, aadhaar_hash: str, farmer_id: str) -> bool: ...
+
+    @abstractmethod
     def create(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]: ...
 
     @abstractmethod

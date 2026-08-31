@@ -1,7 +1,12 @@
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 
 from app.api import deps
+from app.core.exceptions import ConflictError
 from app.main import app
+from app.repositories.memory import InMemoryFarmerRepository
+from app.schemas.farmer import FarmerCreate
+from app.services.farmer_service import register_farmer
 
 
 VALID_PAYLOAD = {
@@ -41,6 +46,26 @@ def test_register_farmer_rejects_duplicate_aadhaar_for_another_account(client, a
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "conflict"
+
+
+def test_concurrent_registration_reserves_aadhaar_once():
+    repo = InMemoryFarmerRepository()
+    payload = FarmerCreate(**VALID_PAYLOAD)
+
+    def register(farmer_id):
+        try:
+            return register_farmer(repo, farmer_id, payload, b"test-key")
+        except ConflictError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(register, ["farmer-one", "farmer-two"]))
+
+    assert sum(result is not None for result in results) == 1
+    created = sum(
+        repo.get(farmer_id) is not None for farmer_id in ["farmer-one", "farmer-two"]
+    )
+    assert created == 1
 
 
 def test_register_farmer_migrates_matching_legacy_hash(client, auth_headers, farmer_repo):

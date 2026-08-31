@@ -12,10 +12,13 @@
 """
 from typing import Any, Dict, List, Optional
 
+from google.cloud import firestore
+
 from app.repositories.base import CropRepository, FarmerRepository
 
 FARMERS_COLLECTION = "farmers"
 CROPS_COLLECTION = "crops"
+AADHAAR_RESERVATIONS_COLLECTION = "aadhaar_reservations"
 
 
 class FirestoreFarmerRepository(FarmerRepository):
@@ -34,6 +37,34 @@ class FirestoreFarmerRepository(FarmerRepository):
         )
         doc = next(iter(query.stream()), None)
         return doc.to_dict() if doc is not None else None
+
+    def reserve_aadhaar(self, aadhaar_hash: str, farmer_id: str) -> bool:
+        reservation_ref = self._client.collection(AADHAAR_RESERVATIONS_COLLECTION).document(
+            aadhaar_hash
+        )
+        matching_farmer_query = (
+            self._client.collection(FARMERS_COLLECTION)
+            .where("aadhaar_hash", "==", aadhaar_hash)
+            .limit(1)
+        )
+        transaction = self._client.transaction()
+
+        @firestore.transactional
+        def reserve(transaction) -> bool:
+            reservation = reservation_ref.get(transaction=transaction)
+            if reservation.exists:
+                return reservation.to_dict().get("farmer_id") == farmer_id
+
+            if next(transaction.get(matching_farmer_query), None) is not None:
+                return False
+
+            transaction.create(
+                reservation_ref,
+                {"aadhaar_hash": aadhaar_hash, "farmer_id": farmer_id},
+            )
+            return True
+
+        return reserve(transaction)
 
     def create(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         ref = self._client.collection(FARMERS_COLLECTION).document(farmer_id)

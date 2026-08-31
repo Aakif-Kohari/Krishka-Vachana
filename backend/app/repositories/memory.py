@@ -13,6 +13,7 @@ from app.repositories.base import CropRepository, FarmerRepository
 class InMemoryFarmerRepository(FarmerRepository):
     def __init__(self) -> None:
         self._data: Dict[str, Dict[str, Any]] = {}
+        self._aadhaar_reservations: Dict[str, str] = {}
         self._lock = threading.Lock()
 
     def get(self, farmer_id: str) -> Optional[Dict[str, Any]]:
@@ -30,6 +31,16 @@ class InMemoryFarmerRepository(FarmerRepository):
                 ),
                 None,
             )
+
+    def reserve_aadhaar(self, aadhaar_hash: str, farmer_id: str) -> bool:
+        with self._lock:
+            owner = self._aadhaar_reservations.get(aadhaar_hash)
+            if owner is not None:
+                return owner == farmer_id
+            if any(record.get("aadhaar_hash") == aadhaar_hash for record in self._data.values()):
+                return False
+            self._aadhaar_reservations[aadhaar_hash] = farmer_id
+            return True
 
     def create(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         with self._lock:

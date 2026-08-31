@@ -42,15 +42,15 @@ def register_farmer(
         raise ConflictError("Farmer profile already exists for this account")
 
     aadhaar_fingerprint = _fingerprint_aadhaar(payload.aadhaar_number, aadhaar_hmac_key)
-    duplicate = repo.get_by_aadhaar_hash(aadhaar_fingerprint)
-    if duplicate is None:
-        # Existing records used an unkeyed SHA-256 hash. A matching
-        # registration lets us migrate that record without retaining the
-        # legacy fingerprint or ever storing the plaintext Aadhaar number.
-        duplicate = repo.get_by_aadhaar_hash(_legacy_aadhaar_hash(payload.aadhaar_number))
-        if duplicate is not None:
-            repo.update(duplicate["farmer_id"], {"aadhaar_hash": aadhaar_fingerprint})
+    # Existing records used an unkeyed SHA-256 hash. Reserve the new
+    # fingerprint for that record before migrating it so the migration cannot
+    # introduce the same fingerprint as a concurrent registration.
+    duplicate = repo.get_by_aadhaar_hash(_legacy_aadhaar_hash(payload.aadhaar_number))
+    reservation_owner = duplicate["farmer_id"] if duplicate is not None else farmer_id
+    if not repo.reserve_aadhaar(aadhaar_fingerprint, reservation_owner):
+        raise ConflictError("A farmer profile already exists for this Aadhaar number")
     if duplicate is not None:
+        repo.update(duplicate["farmer_id"], {"aadhaar_hash": aadhaar_fingerprint})
         raise ConflictError("A farmer profile already exists for this Aadhaar number")
 
     record = repo.create(
