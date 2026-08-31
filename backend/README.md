@@ -42,7 +42,7 @@ throwaway prototype:
     workers) and a `Procfile` for platforms that use one instead
   - Config fully via environment variables (`.env.example`), no
     hardcoded secrets
-- Test suite (35 tests) covering all of the above.
+- Test suite (37 tests) covering all of the above.
 
 ### Roadmap (remaining phases, future PRs)
 
@@ -102,7 +102,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-35/35 tests currently pass, covering registration validation (including
+37/37 tests currently pass, covering registration validation (including
 Aadhaar/phone format checks and duplicate-registration handling), profile
 updates, crop registration, the auth dependency's fallback behavior, and
 the health/docs/status pages.
@@ -155,3 +155,11 @@ on any container-based host in the meantime.
 - **AI/ML**: congestion prediction and alternative-centre recommendation
   will be called from a Phase 2 backend endpoint that wraps your model's
   API - not called directly by the frontend, per `team_work_division.md`.
+- **Whoever manages the Secret Manager entry**: `AADHAAR_HMAC_SECRET_NAME`
+  must pin an explicit numeric version (`.../versions/7`, not
+  `.../versions/latest`) - the app rejects a mutable alias outright. This
+  is deliberate, not an oversight: rotating this key has a real trade-off
+  documented at the top of `app/core/secrets.py` (short version: because
+  we never store the plaintext Aadhaar number, rotating the key means new
+  registrations stop being checked for duplicates against farmers who
+  registered under the old version). Read that comment before rotating.

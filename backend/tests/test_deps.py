@@ -38,12 +38,36 @@ def test_aadhaar_hmac_key_is_retrieved_from_secret_manager(monkeypatch):
     key = get_aadhaar_hmac_key(
         Settings(
             aadhaar_hmac_secret_name=(
-                "projects/test-project/secrets/aadhaar-hmac-key/versions/latest"
+                "projects/test-project/secrets/aadhaar-hmac-key/versions/7"
             )
         )
     )
 
     assert key == expected_key
+
+
+def test_aadhaar_hmac_key_rejects_mutable_latest_alias(monkeypatch):
+    monkeypatch.setattr("app.core.secrets._access_secret", lambda name: b"a" * 32)
+
+    with pytest.raises(AppError) as exc_info:
+        get_aadhaar_hmac_key(
+            Settings(
+                aadhaar_hmac_secret_name=(
+                    "projects/test-project/secrets/aadhaar-hmac-key/versions/latest"
+                )
+            )
+        )
+
+    assert exc_info.value.status_code == 503
+
+
+def test_aadhaar_hmac_key_rejects_malformed_resource_name(monkeypatch):
+    monkeypatch.setattr("app.core.secrets._access_secret", lambda name: b"a" * 32)
+
+    with pytest.raises(AppError) as exc_info:
+        get_aadhaar_hmac_key(Settings(aadhaar_hmac_secret_name="not-a-resource-name"))
+
+    assert exc_info.value.status_code == 503
 
 
 def test_malformed_authorization_header_rejected():
