@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # API
     api_v1_prefix: str = "/api/v1"
 
+    # Deployment / docs
+    app_version: str = "0.1.0"
+    enable_docs: bool = True
+
     @property
     def cors_origin_list(self) -> List[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

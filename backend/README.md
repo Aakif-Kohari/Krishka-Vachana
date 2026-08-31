@@ -17,7 +17,8 @@ This directory contains **backend only**. It does not touch:
 ## Current status: Phase 1 of 4 (~25%)
 
 Implemented so far - the first stage of the product flow
-(`Farmer -> Smart Slot -> ...`):
+(`Farmer -> Smart Slot -> ...`), built to be deployable as-is rather than a
+throwaway prototype:
 
 - Project scaffold (FastAPI app, settings, error handling)
 - Auth dependency that verifies Firebase ID tokens (falls back to a
@@ -31,7 +32,18 @@ Implemented so far - the first stage of the product flow
   or returned in plaintext - only a hash and the last 4 digits.
 - **Crop and quantity registration**: endpoints to register a crop +
   quantity against a farmer and list a farmer's registered crops.
-- Test suite (18 tests) covering the above.
+- **Production/deployment readiness**:
+  - Liveness (`/api/v1/health`) and readiness (`/api/v1/health/ready`)
+    endpoints, matching the standard container-platform health-check split
+  - Custom-branded interactive docs at `/docs`, ReDoc at `/redoc`, and a
+    human-friendly `/status` page - all can be fully disabled in
+    production via `ENABLE_DOCS=false` (verified: returns 404 while
+    `/api/v1/health` keeps working)
+  - `Dockerfile` (non-root user, `HEALTHCHECK`, gunicorn + uvicorn
+    workers) and a `Procfile` for platforms that use one instead
+  - Config fully via environment variables (`.env.example`), no
+    hardcoded secrets
+- Test suite (23 tests) covering all of the above.
 
 ### Roadmap (remaining phases, future PRs)
 
@@ -43,20 +55,27 @@ Implemented so far - the first stage of the product flow
 
 ## API surface (Phase 1)
 
-All endpoints are versioned under `/api/v1` and (except `/health`) require
+All endpoints are versioned under `/api/v1` and (except health) require
 `Authorization: Bearer <firebase-id-token>`.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/v1/health` | Liveness check |
+| GET | `/api/v1/health` | Liveness check (always 200 while the process is up) |
+| GET | `/api/v1/health/ready` | Readiness check (verifies Firestore connectivity when configured; 503 if degraded) |
 | POST | `/api/v1/farmers/register` | Register the authenticated farmer's profile |
 | GET | `/api/v1/farmers/me` | Get the authenticated farmer's profile |
 | PATCH | `/api/v1/farmers/me` | Update the authenticated farmer's profile |
 | POST | `/api/v1/crops` | Register a crop + quantity for the authenticated farmer |
 | GET | `/api/v1/crops/me` | List the authenticated farmer's registered crops |
 
-Interactive docs are available at `/docs` (Swagger UI) once the server is
-running.
+Human-facing pages (disable in prod with `ENABLE_DOCS=false` if you don't
+want them public):
+
+| Path | What it is |
+|---|---|
+| `/docs` | Custom-branded Swagger UI |
+| `/redoc` | ReDoc API reference |
+| `/status` | Plain-English status page (version, environment, Firebase connectivity, links) |
 
 ## Local setup
 
@@ -84,9 +103,43 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-18/18 tests currently pass, covering registration validation (including
+23/23 tests currently pass, covering registration validation (including
 Aadhaar/phone format checks and duplicate-registration handling), profile
-updates, crop registration, and the auth dependency's fallback behavior.
+updates, crop registration, the auth dependency's fallback behavior, and
+the health/docs/status pages.
+
+## Deploying
+
+### Docker (any container host: Cloud Run, Fly.io, Render, ECS, etc.)
+
+```bash
+docker build -t kisansetu-backend .
+docker run -p 8000:8000 \
+  -e ENVIRONMENT=production \
+  -e ENABLE_DOCS=false \
+  -e FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase.json \
+  -v /path/to/firebase-service-account.json:/secrets/firebase.json:ro \
+  kisansetu-backend
+```
+
+The image runs as a non-root user, serves via gunicorn with uvicorn
+workers (`Dockerfile` `CMD`), and has a built-in `HEALTHCHECK` against
+`/api/v1/health`.
+
+### Platforms that use a Procfile instead (Railway, Heroku-style)
+
+The included `Procfile` runs the same gunicorn command; just set the same
+environment variables in the platform's dashboard.
+
+### Vercel
+
+The repo's `technology_stack.md` lists Vercel + Firebase for deployment.
+Vercel's Python support targets serverless functions rather than a long-
+running ASGI process - wiring that up (e.g. via an ASGI adapter and
+`vercel.json`) is an infra/deployment decision I've left for the Database
+& Infrastructure teammate to confirm, since they own the deployment
+pipeline per `team_work_division.md`. The Docker/Procfile paths above work
+on any container-based host in the meantime.
 
 ## Design notes for teammates
 
@@ -98,7 +151,8 @@ updates, crop registration, and the auth dependency's fallback behavior.
 - **Database & Infrastructure**: `app/repositories/firestore.py` is a
   placeholder using `farmers`/`crops` as collection names and flat
   documents matching the schemas above - please review against whatever
-  schema/security rules you set up and flag any mismatch.
+  schema/security rules you set up and flag any mismatch. Also see the
+  Vercel note above re: final deployment target.
 - **AI/ML**: congestion prediction and alternative-centre recommendation
   will be called from a Phase 2 backend endpoint that wraps your model's
   API - not called directly by the frontend, per `team_work_division.md`.
