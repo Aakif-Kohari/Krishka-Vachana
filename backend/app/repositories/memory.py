@@ -20,6 +20,17 @@ class InMemoryFarmerRepository(FarmerRepository):
             record = self._data.get(farmer_id)
             return dict(record) if record else None
 
+    def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            return next(
+                (
+                    dict(record)
+                    for record in self._data.values()
+                    if record.get("aadhaar_hash") == aadhaar_hash
+                ),
+                None,
+            )
+
     def create(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         with self._lock:
             record = {"farmer_id": farmer_id, **data}

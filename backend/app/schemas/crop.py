@@ -42,6 +42,11 @@ class CropRegistrationCreate(BaseModel):
             raise ValueError(f"crop_type must be one of {sorted(COMMON_CROPS)}")
         return v
 
+    @field_validator("crop_type_other")
+    @classmethod
+    def normalize_crop_type_other(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if v is not None else None
+
     @model_validator(mode="after")
     def validate_other(self) -> "CropRegistrationCreate":
         if self.crop_type == "other" and not self.crop_type_other:

@@ -37,6 +37,9 @@ def test_register_crop_invalid_quantity(client, auth_headers):
         "/api/v1/crops", json={"crop_type": "wheat", "quantity_quintals": 0}, headers=auth_headers
     )
     assert response.status_code == 422
+    assert response.json() == {
+        "error": {"code": "validation_error", "message": "Request validation failed"}
+    }
 
 
 def test_register_crop_other_requires_label(client, auth_headers):
@@ -45,6 +48,27 @@ def test_register_crop_other_requires_label(client, auth_headers):
         "/api/v1/crops", json={"crop_type": "other", "quantity_quintals": 5}, headers=auth_headers
     )
     assert response.status_code == 422
+
+
+def test_register_crop_other_rejects_blank_label(client, auth_headers):
+    _register_farmer(client, auth_headers)
+    response = client.post(
+        "/api/v1/crops",
+        json={"crop_type": "other", "crop_type_other": "   ", "quantity_quintals": 5},
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+
+
+def test_register_crop_other_persists_trimmed_label(client, auth_headers):
+    _register_farmer(client, auth_headers)
+    response = client.post(
+        "/api/v1/crops",
+        json={"crop_type": "other", "crop_type_other": "  lentils  ", "quantity_quintals": 5},
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    assert response.json()["crop_type_other"] == "lentils"
 
 
 def test_list_crops_for_farmer(client, auth_headers):

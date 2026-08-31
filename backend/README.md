@@ -21,15 +21,14 @@ Implemented so far - the first stage of the product flow
 throwaway prototype:
 
 - Project scaffold (FastAPI app, settings, error handling)
-- Auth dependency that verifies Firebase ID tokens (falls back to a
-  dev-only mode when Firebase credentials aren't available yet, so backend
-  work isn't blocked on Infra's Firebase setup)
+- Auth dependency that verifies Firebase ID tokens (an explicitly enabled
+  dev-only fallback keeps local work unblocked before Firebase is available)
 - Repository abstraction (`app/repositories/`) with an in-memory
   implementation for local dev/tests and a Firestore implementation ready
   to wire in once the Infra teammate confirms collection names/schema
 - **Farmer ID / Aadhaar-linked identification**: registration + profile
   endpoints. Full Aadhaar numbers are validated on input but never stored
-  or returned in plaintext - only a hash and the last 4 digits.
+  or returned in plaintext - only a keyed fingerprint and the last 4 digits.
 - **Crop and quantity registration**: endpoints to register a crop +
   quantity against a farmer and list a farmer's registered crops.
 - **Production/deployment readiness**:
@@ -43,7 +42,7 @@ throwaway prototype:
     workers) and a `Procfile` for platforms that use one instead
   - Config fully via environment variables (`.env.example`), no
     hardcoded secrets
-- Test suite (23 tests) covering all of the above.
+- Test suite (34 tests) covering all of the above.
 
 ### Roadmap (remaining phases, future PRs)
 
@@ -88,13 +87,13 @@ cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
-Without Firebase credentials configured, the API automatically falls back
-to an in-memory store and a dev-only auth mode (any non-empty Bearer token
-is accepted as the farmer's uid) so you can develop and test without
-waiting on the Firebase project. Set `FIREBASE_SERVICE_ACCOUNT_PATH` (or
-`FIREBASE_EMULATOR_HOST`) in `.env` once real credentials/emulator are
-available - no code changes needed, the switch is automatic
-(`app/api/deps.py`).
+For local development without Firebase credentials, explicitly set
+`ALLOW_DEV_AUTH_FALLBACK=true` to use the in-memory store and dev-only auth
+mode (any non-empty Bearer token is accepted as the farmer's uid). Set
+`FIREBASE_SERVICE_ACCOUNT_PATH` (or `FIREBASE_EMULATOR_HOST`) once real
+credentials or an emulator are available. Farmer registration also requires
+a stable, 32-byte-or-longer key in Google Secret Manager; configure its full
+version resource as `AADHAAR_HMAC_SECRET_NAME`.
 
 ## Running tests
 
@@ -103,7 +102,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-23/23 tests currently pass, covering registration validation (including
+34/34 tests currently pass, covering registration validation (including
 Aadhaar/phone format checks and duplicate-registration handling), profile
 updates, crop registration, the auth dependency's fallback behavior, and
 the health/docs/status pages.

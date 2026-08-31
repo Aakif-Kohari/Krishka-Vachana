@@ -8,7 +8,7 @@ that identity, which is Backend's responsibility.
 Security note: we never accept or return a full Aadhaar number in any
 response. Only the last 4 digits are stored/exposed (`aadhaar_last4`),
 mirroring how Aadhaar is handled in real e-KYC flows. The full number is
-validated on input, hashed, and the plaintext is discarded - see
+validated on input, converted to a keyed fingerprint, and discarded - see
 app/services/farmer_service.py.
 """
 import re

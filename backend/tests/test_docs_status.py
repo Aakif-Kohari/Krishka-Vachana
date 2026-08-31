@@ -1,3 +1,13 @@
+from app.core.firebase import FirebaseState, get_firebase_state
+from app.main import app
+
+
+class _ConfiguredFirebase(FirebaseState):
+    @property
+    def is_configured(self) -> bool:
+        return True
+
+
 def test_custom_docs_page_served(client):
     response = client.get("/docs")
     assert response.status_code == 200
@@ -22,3 +32,11 @@ def test_status_page_served(client):
     assert "text/html" in response.headers["content-type"]
     assert "Service status" in response.text
     assert "in-memory fallback" in response.text
+
+
+def test_status_page_labels_configured_firebase(client):
+    app.dependency_overrides[get_firebase_state] = lambda: _ConfiguredFirebase()
+    response = client.get("/status")
+    assert response.status_code == 200
+    assert '<span class="badge badge-ok">configured</span>' in response.text
+    assert "connected" not in response.text

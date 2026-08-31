@@ -1,32 +1,64 @@
 """Farmer registration & profile business logic."""
 import hashlib
+import hmac
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.repositories.base import FarmerRepository
 from app.schemas.farmer import FarmerCreate, FarmerOut, FarmerUpdate, utcnow
 
 
-def _hash_aadhaar(aadhaar_number: str) -> str:
-    """One-way hash of the full Aadhaar number.
+_FINGERPRINT_VERSION = "hmac-sha256:v1"
 
-    We never persist the plaintext number - only this hash (for potential
-    future dedupe/verification needs) and the last 4 digits (for display,
+
+def _normalize_aadhaar(aadhaar_number: str) -> str:
+    return aadhaar_number.strip()
+
+
+def _fingerprint_aadhaar(aadhaar_number: str, key: bytes) -> str:
+    """Keyed, one-way fingerprint of the normalized Aadhaar number.
+
+    We never persist the plaintext number - only this fingerprint (for
+    dedupe/verification needs) and the last 4 digits (for display,
     matching common Indian e-KYC UX of showing "XXXX-XXXX-1234").
     """
-    return hashlib.sha256(aadhaar_number.encode("utf-8")).hexdigest()
+    normalized = _normalize_aadhaar(aadhaar_number).encode("utf-8")
+    digest = hmac.new(key, normalized, hashlib.sha256).hexdigest()
+    return f"{_FINGERPRINT_VERSION}:{digest}"
 
 
-def register_farmer(repo: FarmerRepository, farmer_id: str, payload: FarmerCreate) -> FarmerOut:
+def _legacy_aadhaar_hash(aadhaar_number: str) -> str:
+    normalized = _normalize_aadhaar(aadhaar_number).encode("utf-8")
+    return hashlib.sha256(normalized).hexdigest()
+
+
+def register_farmer(
+    repo: FarmerRepository,
+    farmer_id: str,
+    payload: FarmerCreate,
+    aadhaar_hmac_key: bytes,
+) -> FarmerOut:
     existing = repo.get(farmer_id)
     if existing is not None:
         raise ConflictError("Farmer profile already exists for this account")
+
+    aadhaar_fingerprint = _fingerprint_aadhaar(payload.aadhaar_number, aadhaar_hmac_key)
+    duplicate = repo.get_by_aadhaar_hash(aadhaar_fingerprint)
+    if duplicate is None:
+        # Existing records used an unkeyed SHA-256 hash. A matching
+        # registration lets us migrate that record without retaining the
+        # legacy fingerprint or ever storing the plaintext Aadhaar number.
+        duplicate = repo.get_by_aadhaar_hash(_legacy_aadhaar_hash(payload.aadhaar_number))
+        if duplicate is not None:
+            repo.update(duplicate["farmer_id"], {"aadhaar_hash": aadhaar_fingerprint})
+    if duplicate is not None:
+        raise ConflictError("A farmer profile already exists for this Aadhaar number")
 
     record = repo.create(
         farmer_id,
         {
             "full_name": payload.full_name,
             "phone_number": payload.phone_number,
-            "aadhaar_hash": _hash_aadhaar(payload.aadhaar_number),
+            "aadhaar_hash": aadhaar_fingerprint,
             "aadhaar_last4": payload.aadhaar_number[-4:],
             "village": payload.village,
             "district": payload.district,

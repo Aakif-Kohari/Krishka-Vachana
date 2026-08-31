@@ -1,3 +1,9 @@
+import hashlib
+
+from app.api import deps
+from app.main import app
+
+
 VALID_PAYLOAD = {
     "full_name": "Ravi Kumar",
     "phone_number": "9876543210",
@@ -9,19 +15,50 @@ VALID_PAYLOAD = {
 }
 
 
-def test_register_farmer_success(client, auth_headers):
+def test_register_farmer_success(client, auth_headers, farmer_repo):
     response = client.post("/api/v1/farmers/register", json=VALID_PAYLOAD, headers=auth_headers)
     assert response.status_code == 201
     body = response.json()
     assert body["full_name"] == "Ravi Kumar"
     assert body["aadhaar_last4"] == "9012"
     assert "aadhaar_number" not in body  # full number must never be returned
+    stored = farmer_repo.get(body["farmer_id"])
+    assert stored["aadhaar_hash"].startswith("hmac-sha256:v1:")
+    assert stored["aadhaar_hash"] != hashlib.sha256(b"123456789012").hexdigest()
 
 
 def test_register_farmer_duplicate_conflicts(client, auth_headers):
     client.post("/api/v1/farmers/register", json=VALID_PAYLOAD, headers=auth_headers)
     response = client.post("/api/v1/farmers/register", json=VALID_PAYLOAD, headers=auth_headers)
     assert response.status_code == 409
+
+
+def test_register_farmer_rejects_duplicate_aadhaar_for_another_account(client, auth_headers):
+    client.post("/api/v1/farmers/register", json=VALID_PAYLOAD, headers=auth_headers)
+    app.dependency_overrides[deps.get_current_farmer_uid] = lambda: "another-farmer-uid"
+
+    response = client.post("/api/v1/farmers/register", json=VALID_PAYLOAD, headers=auth_headers)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+
+
+def test_register_farmer_migrates_matching_legacy_hash(client, auth_headers, farmer_repo):
+    legacy_hash = hashlib.sha256(VALID_PAYLOAD["aadhaar_number"].encode("utf-8")).hexdigest()
+    farmer_repo.create(
+        "legacy-farmer-uid",
+        {
+            "aadhaar_hash": legacy_hash,
+            "aadhaar_last4": "9012",
+        },
+    )
+
+    response = client.post("/api/v1/farmers/register", json=VALID_PAYLOAD, headers=auth_headers)
+
+    assert response.status_code == 409
+    migrated = farmer_repo.get("legacy-farmer-uid")
+    assert migrated["aadhaar_hash"].startswith("hmac-sha256:v1:")
+    assert migrated["aadhaar_hash"] != legacy_hash
 
 
 def test_register_farmer_invalid_aadhaar(client, auth_headers):

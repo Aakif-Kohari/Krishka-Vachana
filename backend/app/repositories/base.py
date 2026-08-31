@@ -15,6 +15,9 @@ class FarmerRepository(ABC):
     def get(self, farmer_id: str) -> Optional[Dict[str, Any]]: ...
 
     @abstractmethod
+    def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]: ...
+
+    @abstractmethod
     def create(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]: ...
 
     @abstractmethod

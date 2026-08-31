@@ -20,7 +20,8 @@ class Settings(BaseSettings):
     firebase_service_account_path: str = "./secrets/firebase-service-account.json"
     firebase_project_id: str = "krishka-vachana"
     firebase_emulator_host: str = ""
-    allow_dev_auth_fallback: bool = True
+    allow_dev_auth_fallback: bool = False
+    aadhaar_hmac_secret_name: str = ""
 
     # CORS
     cors_origins: str = "http://localhost:3000"

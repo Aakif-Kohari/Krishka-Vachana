@@ -42,7 +42,7 @@ def status_page(
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> HTMLResponse:
     firebase_badge = (
-        '<span class="badge badge-ok">connected</span>'
+        '<span class="badge badge-ok">configured</span>'
         if firebase.is_configured
         else '<span class="badge badge-warn">using in-memory fallback</span>'
     )

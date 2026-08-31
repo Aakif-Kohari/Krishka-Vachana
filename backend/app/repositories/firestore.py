@@ -26,6 +26,15 @@ class FirestoreFarmerRepository(FarmerRepository):
         doc = self._client.collection(FARMERS_COLLECTION).document(farmer_id).get()
         return doc.to_dict() if doc.exists else None
 
+    def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]:
+        query = (
+            self._client.collection(FARMERS_COLLECTION)
+            .where("aadhaar_hash", "==", aadhaar_hash)
+            .limit(1)
+        )
+        doc = next(iter(query.stream()), None)
+        return doc.to_dict() if doc is not None else None
+
     def create(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         ref = self._client.collection(FARMERS_COLLECTION).document(farmer_id)
         ref.set({"farmer_id": farmer_id, **data})

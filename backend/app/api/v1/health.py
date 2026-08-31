@@ -12,6 +12,7 @@ container platforms (Cloud Run, Kubernetes, etc.):
                        is unreachable. Use this for "route traffic here"
                        checks / load balancer health checks.
 """
+import logging
 import time
 from datetime import datetime, timezone
 
@@ -21,6 +22,7 @@ from app.core.config import Settings, get_settings
 from app.core.firebase import FirebaseState, get_firebase_state
 
 router = APIRouter(tags=["health"])
+logger = logging.getLogger("app.health")
 
 _started_at = time.monotonic()
 
@@ -52,12 +54,16 @@ def readiness(
             # the collection is empty, only that the call doesn't raise.
             next(iter(client.collection("_health_check").limit(1).stream()), None)
             checks["firestore"] = "ok"
-        except Exception as exc:  # pragma: no cover - depends on live infra
-            checks["firestore"] = f"error: {exc}"
+        except Exception:  # pragma: no cover - depends on live infra
+            logger.exception("Firestore readiness check failed")
+            checks["firestore"] = "error"
     else:
-        checks["firestore"] = "not_configured (using in-memory fallback)"
+        if settings.is_development and settings.allow_dev_auth_fallback:
+            checks["firestore"] = "not_configured (using in-memory fallback)"
+        else:
+            checks["firestore"] = "not_configured"
 
-    healthy = all(v == "ok" or v.startswith("not_configured") for v in checks.values())
+    healthy = checks["firestore"] in {"ok", "not_configured (using in-memory fallback)"}
     if not healthy:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 

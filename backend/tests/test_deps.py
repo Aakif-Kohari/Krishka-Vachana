@@ -2,8 +2,9 @@ import pytest
 
 from app.api.deps import get_current_farmer_uid
 from app.core.config import Settings
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import AppError, UnauthorizedError
 from app.core.firebase import FirebaseState
+from app.core.secrets import get_aadhaar_hmac_key
 
 
 class _UnconfiguredFirebase(FirebaseState):
@@ -16,6 +17,33 @@ def test_missing_authorization_header_rejected():
     settings = Settings(environment="development")
     with pytest.raises(UnauthorizedError):
         get_current_farmer_uid(authorization="", settings=settings, firebase=_UnconfiguredFirebase())
+
+
+def test_dev_fallback_is_disabled_by_default():
+    settings = Settings(environment="development")
+    assert settings.allow_dev_auth_fallback is False
+
+
+def test_aadhaar_hmac_key_requires_secret_manager_configuration():
+    with pytest.raises(AppError) as exc_info:
+        get_aadhaar_hmac_key(Settings(aadhaar_hmac_secret_name=""))
+
+    assert exc_info.value.status_code == 503
+
+
+def test_aadhaar_hmac_key_is_retrieved_from_secret_manager(monkeypatch):
+    expected_key = b"a" * 32
+    monkeypatch.setattr("app.core.secrets._access_secret", lambda name: expected_key)
+
+    key = get_aadhaar_hmac_key(
+        Settings(
+            aadhaar_hmac_secret_name=(
+                "projects/test-project/secrets/aadhaar-hmac-key/versions/latest"
+            )
+        )
+    )
+
+    assert key == expected_key
 
 
 def test_malformed_authorization_header_rejected():
