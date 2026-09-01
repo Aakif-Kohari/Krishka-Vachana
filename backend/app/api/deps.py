@@ -24,10 +24,11 @@ def get_current_farmer_uid(
     settings: Settings = Depends(get_settings),
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> str:
-    if not authorization.startswith("Bearer "):
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer":
         raise UnauthorizedError("Missing or malformed Authorization header")
 
-    token = authorization.removeprefix("Bearer ").strip()
+    token = token.strip()
     if not token:
         raise UnauthorizedError("Empty bearer token")
 

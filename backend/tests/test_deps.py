@@ -86,6 +86,19 @@ def test_dev_fallback_accepts_bearer_token_as_uid():
     assert uid == "some-token"
 
 
+def test_bearer_scheme_is_case_insensitive():
+    settings = Settings(environment="development", allow_dev_auth_fallback=True)
+    uid = get_current_farmer_uid(
+        authorization="bearer some-token", settings=settings, firebase=_UnconfiguredFirebase()
+    )
+    assert uid == "some-token"
+
+    uid = get_current_farmer_uid(
+        authorization="BEARER some-token", settings=settings, firebase=_UnconfiguredFirebase()
+    )
+    assert uid == "some-token"
+
+
 def test_unconfigured_firebase_rejected_outside_dev_fallback():
     settings = Settings(environment="production", allow_dev_auth_fallback=False)
     with pytest.raises(UnauthorizedError):

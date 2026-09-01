@@ -34,6 +34,18 @@ class FarmerCreate(BaseModel):
     state: str = Field(min_length=1, max_length=120)
     preferred_language: str = Field(default="en")
 
+    @field_validator("full_name", "village", "district", "state")
+    @classmethod
+    def strip_and_require_length(cls, v: str, info) -> str:
+        v = v.strip()
+        minimum = 2 if info.field_name == "full_name" else 1
+        if len(v) < minimum:
+            raise ValueError(
+                f"{info.field_name} must be at least {minimum} character(s) "
+                "after trimming whitespace"
+            )
+        return v
+
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, v: str) -> str:
@@ -62,6 +74,20 @@ class FarmerUpdate(BaseModel):
     district: Optional[str] = Field(default=None, min_length=1, max_length=120)
     state: Optional[str] = Field(default=None, min_length=1, max_length=120)
     preferred_language: Optional[str] = None
+
+    @field_validator("full_name", "village", "district", "state")
+    @classmethod
+    def strip_and_require_length(cls, v: Optional[str], info) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip()
+        minimum = 2 if info.field_name == "full_name" else 1
+        if len(v) < minimum:
+            raise ValueError(
+                f"{info.field_name} must be at least {minimum} character(s) "
+                "after trimming whitespace"
+            )
+        return v
 
     @field_validator("preferred_language")
     @classmethod

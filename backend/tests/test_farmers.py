@@ -119,6 +119,33 @@ def test_register_farmer_invalid_phone(client, auth_headers):
     assert response.status_code == 422
 
 
+def test_register_farmer_rejects_whitespace_only_village(client, auth_headers):
+    payload = {**VALID_PAYLOAD, "village": "   "}
+    response = client.post("/api/v1/farmers/register", json=payload, headers=auth_headers)
+    assert response.status_code == 422
+
+
+def test_register_farmer_rejects_full_name_too_short_after_trim(client, auth_headers):
+    payload = {**VALID_PAYLOAD, "full_name": "A "}
+    response = client.post("/api/v1/farmers/register", json=payload, headers=auth_headers)
+    assert response.status_code == 422
+
+
+def test_register_farmer_trims_padded_fields(client, auth_headers):
+    payload = {**VALID_PAYLOAD, "full_name": "  Ravi Kumar  ", "village": " Rajpur "}
+    response = client.post("/api/v1/farmers/register", json=payload, headers=auth_headers)
+    assert response.status_code == 201
+    body = response.json()
+    assert body["full_name"] == "Ravi Kumar"
+    assert body["village"] == "Rajpur"
+
+
+def test_update_profile_rejects_whitespace_only_village(client, auth_headers):
+    client.post("/api/v1/farmers/register", json=VALID_PAYLOAD, headers=auth_headers)
+    response = client.patch("/api/v1/farmers/me", json={"village": "   "}, headers=auth_headers)
+    assert response.status_code == 422
+
+
 def test_get_profile_requires_registration_first(client, auth_headers):
     response = client.get("/api/v1/farmers/me", headers=auth_headers)
     assert response.status_code == 404

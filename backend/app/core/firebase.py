@@ -47,16 +47,19 @@ class FirebaseState:
                 self._app = firebase_admin.get_app()
                 return
 
-            if settings.firebase_emulator_host:
-                os.environ.setdefault("FIRESTORE_EMULATOR_HOST", settings.firebase_emulator_host)
-                os.environ.setdefault("FIREBASE_AUTH_EMULATOR_HOST", settings.firebase_emulator_host)
+            firestore_host = settings.firestore_emulator_host_effective
+            auth_host = settings.firebase_auth_emulator_host_effective
+            if firestore_host:
+                os.environ.setdefault("FIRESTORE_EMULATOR_HOST", firestore_host)
+            if auth_host:
+                os.environ.setdefault("FIREBASE_AUTH_EMULATOR_HOST", auth_host)
 
             if os.path.exists(settings.firebase_service_account_path):
                 cred = credentials.Certificate(settings.firebase_service_account_path)
                 self._app = firebase_admin.initialize_app(
                     cred, {"projectId": settings.firebase_project_id}
                 )
-            elif settings.firebase_emulator_host:
+            elif firestore_host or auth_host:
                 # Emulator mode doesn't need real credentials.
                 self._app = firebase_admin.initialize_app(
                     options={"projectId": settings.firebase_project_id}
