@@ -1,0 +1,71 @@
+import logging
+
+from app.core.config import Settings, get_settings
+from app.core.firebase import FirebaseState, get_firebase_state
+from app.main import app
+
+
+class _ConfiguredFailingFirebase(FirebaseState):
+    @property
+    def is_configured(self) -> bool:
+        return True
+
+    def firestore_client(self):
+        raise RuntimeError("private credential detail")
+
+
+def test_liveness_check(client):
+    response = client.get("/api/v1/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["service"] == "kisansetu-backend"
+    assert "version" in body
+    assert "uptime_seconds" in body
+
+
+def test_readiness_check_without_firebase_configured(client):
+    response = client.get("/api/v1/health/ready")
+    assert response.status_code == 503
+    body = response.json()
+    assert body == {"status": "degraded", "checks": {"firestore": "not_configured"}}
+
+
+def test_readiness_allows_explicit_development_fallback(client):
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        environment="development", allow_dev_auth_fallback=True
+    )
+    response = client.get("/api/v1/health/ready")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "checks": {"firestore": "not_configured (using in-memory fallback)"},
+    }
+
+
+def test_readiness_rejects_fallback_outside_development(client):
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        environment="production", allow_dev_auth_fallback=True
+    )
+    response = client.get("/api/v1/health/ready")
+    assert response.status_code == 503
+    assert response.json()["checks"]["firestore"] == "not_configured"
+
+
+def test_readiness_hides_firestore_exception(client, caplog):
+    app.dependency_overrides[get_firebase_state] = lambda: _ConfiguredFailingFirebase()
+    with caplog.at_level(logging.ERROR, logger="app.health"):
+        response = client.get("/api/v1/health/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "degraded", "checks": {"firestore": "error"}}
+    assert "private credential detail" not in response.text
+    assert "private credential detail" in caplog.text
+
+
+def test_root(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "KisanSetu API"
+    assert body["health"] == "/api/v1/health"
