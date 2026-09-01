@@ -118,9 +118,33 @@ docker run -p 8000:8000 \
   -e ENABLE_DOCS=false \
   -e AADHAAR_HMAC_SECRET_NAME=projects/PROJECT_ID/secrets/aadhaar-hmac-key/versions/1 \
   -e FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase.json \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcp-service-account.json \
   -v /path/to/firebase-service-account.json:/secrets/firebase.json:ro \
+  -v /path/to/gcp-service-account.json:/secrets/gcp-service-account.json:ro \
   kisansetu-backend
 ```
+
+`FIREBASE_SERVICE_ACCOUNT_PATH` only configures Firebase Admin (Firestore /
+Auth) - it does nothing for Secret Manager. `app/core/secrets.py` creates a
+plain `SecretManagerServiceClient()`, which authenticates via [Application
+Default Credentials
+(ADC)](https://cloud.google.com/docs/authentication/application-default-credentials),
+completely separately from Firebase. Give it credentials one of two ways:
+
+- **Off-GCP hosts** (Fly.io, Render, ECS, etc., as in the example above): set
+  `GOOGLE_APPLICATION_CREDENTIALS` to a mounted service-account key JSON for
+  an account with `roles/secretmanager.secretAccessor` on the Aadhaar secret.
+  This can be the same project as Firebase but does not have to be the same
+  key as `FIREBASE_SERVICE_ACCOUNT_PATH`.
+- **On GCP** (Cloud Run, GKE, Compute Engine): skip
+  `GOOGLE_APPLICATION_CREDENTIALS` entirely and instead attach the
+  platform's own identity (the Cloud Run service's runtime service account,
+  a GKE workload-identity binding, etc.) with that same role - ADC picks it
+  up automatically, no key file needed.
+
+Without one of these, farmer registration returns `503` the first time it
+tries to load the Aadhaar HMAC key (see `get_aadhaar_hmac_key` - it fails
+closed rather than crashing the process).
 
 The image runs as a non-root user, serves via gunicorn with uvicorn
 workers (`Dockerfile` `CMD`), and has a built-in `HEALTHCHECK` against
