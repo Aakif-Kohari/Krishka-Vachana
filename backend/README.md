@@ -116,6 +116,7 @@ docker build -t kisansetu-backend .
 docker run -p 8000:8000 \
   -e ENVIRONMENT=production \
   -e ENABLE_DOCS=false \
+  -e AADHAAR_HMAC_SECRET_NAME=projects/PROJECT_ID/secrets/aadhaar-hmac-key/versions/1 \
   -e FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase.json \
   -v /path/to/firebase-service-account.json:/secrets/firebase.json:ro \
   kisansetu-backend
