@@ -68,6 +68,27 @@ def test_concurrent_registration_reserves_aadhaar_once():
     assert created == 1
 
 
+def test_concurrent_registration_for_same_farmer_does_not_orphan_aadhaar():
+    repo = InMemoryFarmerRepository()
+    payloads = [
+        FarmerCreate(**VALID_PAYLOAD),
+        FarmerCreate(**{**VALID_PAYLOAD, "aadhaar_number": "987654321098"}),
+    ]
+
+    def register(payload):
+        try:
+            return register_farmer(repo, "shared-farmer", payload, b"test-key")
+        except ConflictError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(register, payloads))
+
+    assert sum(result is not None for result in results) == 1
+    losing_payload = payloads[results.index(None)]
+    assert register_farmer(repo, "another-farmer", losing_payload, b"test-key") is not None
+
+
 def test_register_farmer_migrates_matching_legacy_hash(client, auth_headers, farmer_repo):
     legacy_hash = hashlib.sha256(VALID_PAYLOAD["aadhaar_number"].encode("utf-8")).hexdigest()
     farmer_repo.create(

@@ -24,6 +24,11 @@ class FarmerRepository(ABC):
     def create(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]: ...
 
     @abstractmethod
+    def create_with_aadhaar_reservation(
+        self, farmer_id: str, aadhaar_hash: str, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]: ...
+
+    @abstractmethod
     def update(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]: ...
 
 

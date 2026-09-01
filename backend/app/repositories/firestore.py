@@ -71,6 +71,44 @@ class FirestoreFarmerRepository(FarmerRepository):
         ref.set({"farmer_id": farmer_id, **data})
         return {"farmer_id": farmer_id, **data}
 
+    def create_with_aadhaar_reservation(
+        self, farmer_id: str, aadhaar_hash: str, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        farmer_ref = self._client.collection(FARMERS_COLLECTION).document(farmer_id)
+        reservation_ref = self._client.collection(AADHAAR_RESERVATIONS_COLLECTION).document(
+            aadhaar_hash
+        )
+        matching_farmer_query = (
+            self._client.collection(FARMERS_COLLECTION)
+            .where("aadhaar_hash", "==", aadhaar_hash)
+            .limit(1)
+        )
+        record = {"farmer_id": farmer_id, **data, "aadhaar_hash": aadhaar_hash}
+        transaction = self._client.transaction()
+
+        @firestore.transactional
+        def create(transaction) -> Optional[Dict[str, Any]]:
+            farmer = farmer_ref.get(transaction=transaction)
+            if farmer.exists:
+                return None
+
+            reservation = reservation_ref.get(transaction=transaction)
+            if reservation.exists:
+                if reservation.to_dict().get("farmer_id") != farmer_id:
+                    return None
+            else:
+                if next(transaction.get(matching_farmer_query), None) is not None:
+                    return None
+                transaction.create(
+                    reservation_ref,
+                    {"aadhaar_hash": aadhaar_hash, "farmer_id": farmer_id},
+                )
+
+            transaction.create(farmer_ref, record)
+            return record
+
+        return create(transaction)
+
     def update(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         ref = self._client.collection(FARMERS_COLLECTION).document(farmer_id)
         ref.update(data)

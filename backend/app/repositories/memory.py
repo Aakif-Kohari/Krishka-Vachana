@@ -48,6 +48,24 @@ class InMemoryFarmerRepository(FarmerRepository):
             self._data[farmer_id] = record
             return dict(record)
 
+    def create_with_aadhaar_reservation(
+        self, farmer_id: str, aadhaar_hash: str, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            if farmer_id in self._data:
+                return None
+
+            owner = self._aadhaar_reservations.get(aadhaar_hash)
+            if owner is not None and owner != farmer_id:
+                return None
+            if any(record.get("aadhaar_hash") == aadhaar_hash for record in self._data.values()):
+                return None
+
+            record = {"farmer_id": farmer_id, **data, "aadhaar_hash": aadhaar_hash}
+            self._aadhaar_reservations[aadhaar_hash] = farmer_id
+            self._data[farmer_id] = record
+            return dict(record)
+
     def update(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         with self._lock:
             record = self._data.setdefault(farmer_id, {"farmer_id": farmer_id})

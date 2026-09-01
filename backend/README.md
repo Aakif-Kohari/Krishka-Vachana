@@ -42,7 +42,7 @@ throwaway prototype:
     workers) and a `Procfile` for platforms that use one instead
   - Config fully via environment variables (`.env.example`), no
     hardcoded secrets
-- Test suite (37 tests) covering all of the above.
+- Test suite (38 tests) covering all of the above.
 
 ### Roadmap (remaining phases, future PRs)
 
@@ -102,7 +102,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-37/37 tests currently pass, covering registration validation (including
+38/38 tests currently pass, covering registration validation (including
 Aadhaar/phone format checks and duplicate-registration handling), profile
 updates, crop registration, the auth dependency's fallback behavior, and
 the health/docs/status pages.
