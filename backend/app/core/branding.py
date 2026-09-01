@@ -70,7 +70,7 @@ BASE_STYLE = f"""
     font-weight: 500;
   }}
   .badge-ok {{ background: {BRAND['success_bg']}; color: {BRAND['success']}; }}
-  .badge-warn {{ background: {BRAND['warning_bg']}; color: {BRAND['warning']}; }}
+  .badge-warn {{ background: {BRAND['warning_bg']}; color: {BRAND['text']}; }}
   .badge-error {{ background: {BRAND['error_bg']}; color: {BRAND['error']}; }}
   a.link {{ color: {BRAND['primary']}; text-decoration: none; font-weight: 500; }}
   a.link:hover {{ text-decoration: underline; }}

@@ -13,6 +13,7 @@ degrades gracefully instead of crashing the whole API - see
 """
 import logging
 import os
+import threading
 from functools import lru_cache
 from typing import Any, Dict, Optional
 
@@ -27,6 +28,7 @@ class FirebaseState:
     def __init__(self) -> None:
         self._app = None
         self._init_attempted = False
+        self._init_lock = threading.Lock()
 
     @property
     def is_configured(self) -> bool:
@@ -34,46 +36,47 @@ class FirebaseState:
         return self._app is not None
 
     def _ensure_init(self) -> None:
-        if self._init_attempted:
-            return
-        self._init_attempted = True
-
-        settings = get_settings()
-        try:
-            import firebase_admin
-            from firebase_admin import credentials
-
-            if firebase_admin._apps:  # already initialized elsewhere (e.g. tests)
-                self._app = firebase_admin.get_app()
+        with self._init_lock:
+            if self._init_attempted:
                 return
+            self._init_attempted = True
 
-            firestore_host = settings.firestore_emulator_host_effective
-            auth_host = settings.firebase_auth_emulator_host_effective
-            if firestore_host:
-                os.environ.setdefault("FIRESTORE_EMULATOR_HOST", firestore_host)
-            if auth_host:
-                os.environ.setdefault("FIREBASE_AUTH_EMULATOR_HOST", auth_host)
+            settings = get_settings()
+            try:
+                import firebase_admin
+                from firebase_admin import credentials
 
-            if os.path.exists(settings.firebase_service_account_path):
-                cred = credentials.Certificate(settings.firebase_service_account_path)
-                self._app = firebase_admin.initialize_app(
-                    cred, {"projectId": settings.firebase_project_id}
-                )
-            elif firestore_host or auth_host:
-                # Emulator mode doesn't need real credentials.
-                self._app = firebase_admin.initialize_app(
-                    options={"projectId": settings.firebase_project_id}
-                )
-            else:
-                logger.warning(
-                    "No Firebase service account found at %s and no emulator host set. "
-                    "Backend will run with dev auth/storage fallbacks until "
-                    "Infra provides credentials.",
-                    settings.firebase_service_account_path,
-                )
-        except Exception:  # pragma: no cover - defensive, logged for visibility
-            logger.exception("Failed to initialize Firebase Admin SDK")
-            self._app = None
+                if firebase_admin._apps:  # already initialized elsewhere (e.g. tests)
+                    self._app = firebase_admin.get_app()
+                    return
+
+                firestore_host = settings.firestore_emulator_host_effective
+                auth_host = settings.firebase_auth_emulator_host_effective
+                if firestore_host:
+                    os.environ.setdefault("FIRESTORE_EMULATOR_HOST", firestore_host)
+                if auth_host:
+                    os.environ.setdefault("FIREBASE_AUTH_EMULATOR_HOST", auth_host)
+
+                if os.path.exists(settings.firebase_service_account_path):
+                    cred = credentials.Certificate(settings.firebase_service_account_path)
+                    self._app = firebase_admin.initialize_app(
+                        cred, {"projectId": settings.firebase_project_id}
+                    )
+                elif firestore_host or auth_host:
+                    # Emulator mode doesn't need real credentials.
+                    self._app = firebase_admin.initialize_app(
+                        options={"projectId": settings.firebase_project_id}
+                    )
+                else:
+                    logger.warning(
+                        "No Firebase service account found at %s and no emulator host set. "
+                        "Backend will run with dev auth/storage fallbacks until "
+                        "Infra provides credentials.",
+                        settings.firebase_service_account_path,
+                    )
+            except Exception:  # pragma: no cover - defensive, logged for visibility
+                logger.exception("Failed to initialize Firebase Admin SDK")
+                self._app = None
 
     def verify_id_token(self, token: str) -> Dict[str, Any]:
         """Verify a Firebase ID token and return its decoded claims.

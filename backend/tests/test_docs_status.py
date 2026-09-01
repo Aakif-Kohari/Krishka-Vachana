@@ -1,3 +1,4 @@
+from app.core.config import Settings, get_settings
 from app.core.firebase import FirebaseState, get_firebase_state
 from app.main import app
 
@@ -31,7 +32,14 @@ def test_status_page_served(client):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Service status" in response.text
-    assert "in-memory fallback" in response.text
+    assert '<span class="badge badge-warn">not configured</span>' in response.text
+    assert "in-memory fallback" not in response.text
+
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        environment="development", allow_dev_auth_fallback=True
+    )
+    response = client.get("/status")
+    assert '<span class="badge badge-warn">using in-memory fallback</span>' in response.text
 
 
 def test_status_page_labels_configured_firebase(client):

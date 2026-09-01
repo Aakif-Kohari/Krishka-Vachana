@@ -41,11 +41,12 @@ def status_page(
     settings: Settings = Depends(get_settings),
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> HTMLResponse:
-    firebase_badge = (
-        '<span class="badge badge-ok">configured</span>'
-        if firebase.is_configured
-        else '<span class="badge badge-warn">using in-memory fallback</span>'
-    )
+    if firebase.is_configured:
+        firebase_badge = '<span class="badge badge-ok">configured</span>'
+    elif settings.is_development and settings.allow_dev_auth_fallback:
+        firebase_badge = '<span class="badge badge-warn">using in-memory fallback</span>'
+    else:
+        firebase_badge = '<span class="badge badge-warn">not configured</span>'
     version = settings.app_version
     environment = settings.environment
     api_prefix = settings.api_v1_prefix
