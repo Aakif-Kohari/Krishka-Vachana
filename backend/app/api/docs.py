@@ -47,6 +47,10 @@ def status_page(
         firebase_badge = '<span class="badge badge-warn">using in-memory fallback</span>'
     else:
         firebase_badge = '<span class="badge badge-warn">not configured</span>'
+    if settings.congestion_prediction_api_url:
+        congestion_badge = '<span class="badge badge-ok">configured</span>'
+    else:
+        congestion_badge = '<span class="badge badge-warn">using heuristic fallback</span>'
     version = settings.app_version
     environment = settings.environment
     api_prefix = settings.api_v1_prefix
@@ -58,6 +62,7 @@ def status_page(
           <tr><th>Version</th><td><code>{version}</code></td></tr>
           <tr><th>Environment</th><td><code>{environment}</code></td></tr>
           <tr><th>Firebase</th><td>{firebase_badge}</td></tr>
+          <tr><th>Congestion prediction (AI/ML)</th><td>{congestion_badge}</td></tr>
         </table>
       </div>
       <div class="card">

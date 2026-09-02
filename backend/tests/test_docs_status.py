@@ -48,3 +48,15 @@ def test_status_page_labels_configured_firebase(client):
     assert response.status_code == 200
     assert '<span class="badge badge-ok">configured</span>' in response.text
     assert "connected" not in response.text
+
+
+def test_status_page_labels_congestion_prediction_state(client):
+    response = client.get("/status")
+    assert response.status_code == 200
+    assert '<span class="badge badge-warn">using heuristic fallback</span>' in response.text
+
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        congestion_prediction_api_url="https://ml.example.com/predict"
+    )
+    response = client.get("/status")
+    assert '<span class="badge badge-ok">configured</span>' in response.text

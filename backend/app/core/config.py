@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     allow_dev_auth_fallback: bool = False
     aadhaar_hmac_secret_name: str = ""
 
+    # AI/ML congestion-prediction integration point (Phase 2). AI/ML's real
+    # endpoint doesn't exist yet - leave this unset and the backend serves a
+    # deterministic occupancy-based heuristic instead (same
+    # graceful-degradation shape as the Firebase fallback above). Once
+    # AI/ML stands up an endpoint matching app/schemas/congestion.py's
+    # contract, set this and no other code changes are needed. See
+    # app/services/congestion_service.py.
+    congestion_prediction_api_url: str = ""
+    congestion_prediction_api_timeout_seconds: float = 3.0
+
     # CORS
     cors_origins: str = "http://localhost:3000"
 

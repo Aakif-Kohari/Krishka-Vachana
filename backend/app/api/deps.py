@@ -15,8 +15,13 @@ from fastapi import Depends, Header
 from app.core.config import Settings, get_settings
 from app.core.exceptions import UnauthorizedError
 from app.core.firebase import FirebaseState, get_firebase_state
-from app.repositories.base import CropRepository, FarmerRepository
-from app.repositories.memory import get_memory_crop_repository, get_memory_farmer_repository
+from app.repositories.base import CentreRepository, CropRepository, FarmerRepository, SlotBookingRepository
+from app.repositories.memory import (
+    get_memory_centre_repository,
+    get_memory_crop_repository,
+    get_memory_farmer_repository,
+    get_memory_slot_booking_repository,
+)
 
 
 def get_current_farmer_uid(
@@ -71,3 +76,25 @@ def get_crop_repository(
     from app.repositories.firestore import FirestoreCropRepository
 
     return FirestoreCropRepository(client)
+
+
+def get_centre_repository(
+    firebase: FirebaseState = Depends(get_firebase_state),
+) -> CentreRepository:
+    client = firebase.firestore_client()
+    if client is None:
+        return get_memory_centre_repository()
+    from app.repositories.firestore import FirestoreCentreRepository
+
+    return FirestoreCentreRepository(client)
+
+
+def get_slot_booking_repository(
+    firebase: FirebaseState = Depends(get_firebase_state),
+) -> SlotBookingRepository:
+    client = firebase.firestore_client()
+    if client is None:
+        return get_memory_slot_booking_repository()
+    from app.repositories.firestore import FirestoreSlotBookingRepository
+
+    return FirestoreSlotBookingRepository(client)
