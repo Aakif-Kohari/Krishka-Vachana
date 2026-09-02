@@ -29,6 +29,8 @@ SLOT_WINDOWS = [
 
 
 class CentreOut(BaseModel):
+    """Schema for procurement centre responses."""
+
     centre_id: str
     name: str
     village: str
@@ -41,4 +43,5 @@ class CentreOut(BaseModel):
 
 
 def utcnow() -> datetime:
+    """Return the current UTC datetime."""
     return datetime.now(timezone.utc)

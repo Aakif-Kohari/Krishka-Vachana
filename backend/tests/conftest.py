@@ -17,26 +17,31 @@ TEST_AADHAAR_HMAC_KEY = b"test-only-aadhaar-hmac-key-32-bytes"
 
 @pytest.fixture()
 def farmer_repo():
+    """Provide a fresh in-memory farmer repository for each test."""
     return InMemoryFarmerRepository()
 
 
 @pytest.fixture()
 def crop_repo():
+    """Provide a fresh in-memory crop repository for each test."""
     return InMemoryCropRepository()
 
 
 @pytest.fixture()
 def centre_repo():
+    """Provide a fresh in-memory centre repository for each test."""
     return InMemoryCentreRepository()
 
 
 @pytest.fixture()
 def booking_repo():
+    """Provide a fresh in-memory booking repository for each test."""
     return InMemorySlotBookingRepository()
 
 
 @pytest.fixture()
 def client(farmer_repo, crop_repo, centre_repo, booking_repo):
+    """Provide a test client with dependency overrides for isolated testing."""
     app.dependency_overrides[deps.get_current_farmer_uid] = lambda: TEST_FARMER_ID
     app.dependency_overrides[deps.get_farmer_repository] = lambda: farmer_repo
     app.dependency_overrides[deps.get_crop_repository] = lambda: crop_repo
@@ -52,6 +57,7 @@ def client(farmer_repo, crop_repo, centre_repo, booking_repo):
 
 @pytest.fixture()
 def auth_headers():
+    """Provide test authorization headers."""
     return {"Authorization": "Bearer test-token"}
 
 

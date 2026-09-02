@@ -29,6 +29,7 @@ _started_at = time.monotonic()
 
 @router.get("/health")
 def liveness(settings: Settings = Depends(get_settings)) -> dict:
+    """Liveness check: confirm the process is running and able to respond."""
     return {
         "status": "ok",
         "service": "kisansetu-backend",
@@ -45,6 +46,7 @@ def readiness(
     settings: Settings = Depends(get_settings),
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> dict:
+    """Readiness check: verify dependencies are available and the service can handle traffic."""
     checks = {}
 
     if firebase.is_configured:

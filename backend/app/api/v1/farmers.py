@@ -16,6 +16,7 @@ def register_farmer(
     repo: FarmerRepository = Depends(get_farmer_repository),
     aadhaar_hmac_key: bytes = Depends(get_aadhaar_hmac_key),
 ) -> FarmerOut:
+    """Register a new farmer profile with Aadhaar-linked identification."""
     return farmer_service.register_farmer(repo, farmer_id, payload, aadhaar_hmac_key)
 
 
@@ -24,6 +25,7 @@ def get_my_profile(
     farmer_id: str = Depends(get_current_farmer_uid),
     repo: FarmerRepository = Depends(get_farmer_repository),
 ) -> FarmerOut:
+    """Get the authenticated farmer's profile."""
     return farmer_service.get_farmer_profile(repo, farmer_id)
 
 
@@ -33,4 +35,5 @@ def update_my_profile(
     farmer_id: str = Depends(get_current_farmer_uid),
     repo: FarmerRepository = Depends(get_farmer_repository),
 ) -> FarmerOut:
+    """Update the authenticated farmer's profile."""
     return farmer_service.update_farmer_profile(repo, farmer_id, payload)

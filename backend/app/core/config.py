@@ -12,6 +12,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Application settings loaded from environment variables or .env file."""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     environment: str = "development"
@@ -55,21 +57,26 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> List[str]:
+        """Parse comma-separated CORS origins into a list."""
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @property
     def is_development(self) -> bool:
+        """Check if the application is running in development mode."""
         return self.environment.lower() == "development"
 
     @property
     def firestore_emulator_host_effective(self) -> str:
+        """Return the effective Firestore emulator host, falling back to the generic Firebase emulator host."""
         return self.firestore_emulator_host or self.firebase_emulator_host
 
     @property
     def firebase_auth_emulator_host_effective(self) -> str:
+        """Return the effective Firebase Auth emulator host, falling back to the generic Firebase emulator host."""
         return self.firebase_auth_emulator_host or self.firebase_emulator_host
 
 
 @lru_cache
 def get_settings() -> Settings:
+    """Return the cached application settings instance."""
     return Settings()

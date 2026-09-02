@@ -17,6 +17,7 @@ def register_crop(
     crop_repo: CropRepository = Depends(get_crop_repository),
     farmer_repo: FarmerRepository = Depends(get_farmer_repository),
 ) -> CropOut:
+    """Register a crop and quantity for the authenticated farmer."""
     return crop_service.register_crop(crop_repo, farmer_repo, farmer_id, payload)
 
 
@@ -25,4 +26,5 @@ def list_my_crops(
     farmer_id: str = Depends(get_current_farmer_uid),
     crop_repo: CropRepository = Depends(get_crop_repository),
 ) -> List[CropOut]:
+    """List all crops registered by the authenticated farmer."""
     return crop_service.list_crops_for_farmer(crop_repo, farmer_id)

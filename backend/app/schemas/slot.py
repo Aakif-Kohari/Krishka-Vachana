@@ -17,6 +17,8 @@ from app.schemas.centre import SLOT_WINDOWS
 
 
 class SlotBookingCreate(BaseModel):
+    """Schema for creating a Smart Slot booking."""
+
     centre_id: str = Field(min_length=1)
     slot_date: date = Field(description="Date the farmer intends to arrive (YYYY-MM-DD)")
     slot_window: str = Field(description=f"One of {SLOT_WINDOWS}")
@@ -29,6 +31,7 @@ class SlotBookingCreate(BaseModel):
     @field_validator("slot_window")
     @classmethod
     def validate_slot_window(cls, v: str) -> str:
+        """Validate that slot_window is one of the predefined time windows."""
         if v not in SLOT_WINDOWS:
             raise ValueError(f"slot_window must be one of {SLOT_WINDOWS}")
         return v
@@ -36,12 +39,15 @@ class SlotBookingCreate(BaseModel):
     @field_validator("slot_date")
     @classmethod
     def validate_not_past(cls, v: date) -> date:
+        """Validate that slot_date is not in the past."""
         if v < datetime.now(timezone.utc).date():
             raise ValueError("slot_date cannot be in the past")
         return v
 
 
 class SlotBookingOut(BaseModel):
+    """Schema for slot booking responses."""
+
     booking_id: str
     farmer_id: str
     centre_id: str
@@ -56,4 +62,5 @@ class SlotBookingOut(BaseModel):
 
 
 def utcnow() -> datetime:
+    """Return the current UTC datetime."""
     return datetime.now(timezone.utc)

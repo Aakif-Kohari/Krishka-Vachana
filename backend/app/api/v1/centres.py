@@ -20,6 +20,7 @@ def list_centres(
     farmer_id: str = Depends(get_current_farmer_uid),
     repo: CentreRepository = Depends(get_centre_repository),
 ) -> List[CentreOut]:
+    """List procurement centres, optionally filtered by district or state."""
     return centre_service.list_centres(repo, district=district, state=state)
 
 
@@ -29,6 +30,7 @@ def get_centre(
     farmer_id: str = Depends(get_current_farmer_uid),
     repo: CentreRepository = Depends(get_centre_repository),
 ) -> CentreOut:
+    """Get a procurement centre by ID."""
     return centre_service.get_centre(repo, centre_id)
 
 
@@ -41,4 +43,5 @@ def get_centre_congestion(
     centre_repo: CentreRepository = Depends(get_centre_repository),
     booking_repo: SlotBookingRepository = Depends(get_slot_booking_repository),
 ) -> CongestionOut:
+    """Get predicted congestion levels for a centre on a given date."""
     return congestion_service.predict_congestion(settings, centre_repo, booking_repo, centre_id, slot_date)

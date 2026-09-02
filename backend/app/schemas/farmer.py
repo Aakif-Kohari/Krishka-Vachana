@@ -26,6 +26,8 @@ _PHONE_RE = re.compile(r"^[6-9]\d{9}$")  # Indian mobile numbers
 
 
 class FarmerCreate(BaseModel):
+    """Schema for creating a new farmer profile with Aadhaar-linked identification."""
+
     full_name: str = Field(min_length=2, max_length=120)
     phone_number: str = Field(description="10-digit Indian mobile number, no country code")
     aadhaar_number: str = Field(description="12-digit Aadhaar number; never stored or returned in full")
@@ -37,6 +39,7 @@ class FarmerCreate(BaseModel):
     @field_validator("full_name", "village", "district", "state")
     @classmethod
     def strip_and_require_length(cls, v: str, info) -> str:
+        """Strip whitespace and validate minimum length requirements."""
         v = v.strip()
         minimum = 2 if info.field_name == "full_name" else 1
         if len(v) < minimum:
@@ -49,6 +52,7 @@ class FarmerCreate(BaseModel):
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, v: str) -> str:
+        """Validate that phone number is a 10-digit Indian mobile number."""
         if not _PHONE_RE.match(v):
             raise ValueError("phone_number must be a 10-digit Indian mobile number")
         return v
@@ -56,6 +60,7 @@ class FarmerCreate(BaseModel):
     @field_validator("aadhaar_number")
     @classmethod
     def validate_aadhaar(cls, v: str) -> str:
+        """Validate that Aadhaar number is exactly 12 digits."""
         if not _AADHAAR_RE.match(v):
             raise ValueError("aadhaar_number must be exactly 12 digits")
         return v
@@ -63,12 +68,15 @@ class FarmerCreate(BaseModel):
     @field_validator("preferred_language")
     @classmethod
     def validate_language(cls, v: str) -> str:
+        """Validate that preferred language is in the supported languages list."""
         if v not in SUPPORTED_LANGUAGES:
             raise ValueError(f"preferred_language must be one of {sorted(SUPPORTED_LANGUAGES)}")
         return v
 
 
 class FarmerUpdate(BaseModel):
+    """Schema for updating a farmer profile (all fields optional)."""
+
     full_name: Optional[str] = Field(default=None, min_length=2, max_length=120)
     village: Optional[str] = Field(default=None, min_length=1, max_length=120)
     district: Optional[str] = Field(default=None, min_length=1, max_length=120)
@@ -78,6 +86,7 @@ class FarmerUpdate(BaseModel):
     @field_validator("full_name", "village", "district", "state")
     @classmethod
     def strip_and_require_length(cls, v: Optional[str], info) -> Optional[str]:
+        """Strip whitespace and validate minimum length requirements for optional fields."""
         if v is None:
             return v
         v = v.strip()
@@ -92,12 +101,15 @@ class FarmerUpdate(BaseModel):
     @field_validator("preferred_language")
     @classmethod
     def validate_language(cls, v: Optional[str]) -> Optional[str]:
+        """Validate that preferred language is in the supported languages list (if provided)."""
         if v is not None and v not in SUPPORTED_LANGUAGES:
             raise ValueError(f"preferred_language must be one of {sorted(SUPPORTED_LANGUAGES)}")
         return v
 
 
 class FarmerOut(BaseModel):
+    """Schema for farmer profile responses (excludes full Aadhaar number)."""
+
     farmer_id: str
     full_name: str
     phone_number: str
@@ -112,4 +124,5 @@ class FarmerOut(BaseModel):
 
 
 def utcnow() -> datetime:
+    """Return the current UTC datetime."""
     return datetime.now(timezone.utc)

@@ -32,10 +32,12 @@ class FirebaseState:
 
     @property
     def is_configured(self) -> bool:
+        """Check if Firebase Admin SDK is successfully initialized."""
         self._ensure_init()
         return self._app is not None
 
     def _ensure_init(self) -> None:
+        """Initialize the Firebase Admin SDK if not already initialized."""
         with self._init_lock:
             if self._init_attempted:
                 return
@@ -101,4 +103,5 @@ class FirebaseState:
 
 @lru_cache
 def get_firebase_state() -> FirebaseState:
+    """Return the cached Firebase state singleton."""
     return FirebaseState()

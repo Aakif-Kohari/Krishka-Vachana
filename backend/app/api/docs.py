@@ -28,6 +28,7 @@ _SWAGGER_BRAND_CSS = f"""
 
 @router.get("/docs", response_class=HTMLResponse)
 def custom_swagger_docs() -> HTMLResponse:
+    """Serve custom-branded Swagger UI documentation."""
     response = get_swagger_ui_html(
         openapi_url="/openapi.json",
         title="KisanSetu API - Docs",
@@ -41,6 +42,7 @@ def status_page(
     settings: Settings = Depends(get_settings),
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> HTMLResponse:
+    """Serve a human-readable status page showing service health and configuration."""
     if firebase.is_configured:
         firebase_badge = '<span class="badge badge-ok">configured</span>'
     elif settings.is_development and settings.allow_dev_auth_fallback:

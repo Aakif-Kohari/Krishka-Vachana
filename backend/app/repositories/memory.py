@@ -12,17 +12,21 @@ from app.repositories.base import CentreRepository, CropRepository, FarmerReposi
 
 
 class InMemoryFarmerRepository(FarmerRepository):
+    """In-memory implementation of FarmerRepository for development and testing."""
+
     def __init__(self) -> None:
         self._data: Dict[str, Dict[str, Any]] = {}
         self._aadhaar_reservations: Dict[str, str] = {}
         self._lock = threading.Lock()
 
     def get(self, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a farmer record by ID."""
         with self._lock:
             record = self._data.get(farmer_id)
             return dict(record) if record else None
 
     def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a farmer record by Aadhaar hash."""
         with self._lock:
             return next(
                 (
@@ -34,6 +38,7 @@ class InMemoryFarmerRepository(FarmerRepository):
             )
 
     def reserve_aadhaar(self, aadhaar_hash: str, farmer_id: str) -> bool:
+        """Atomically reserve an Aadhaar hash for a farmer ID."""
         with self._lock:
             owner = self._aadhaar_reservations.get(aadhaar_hash)
             if owner is not None:
@@ -44,6 +49,7 @@ class InMemoryFarmerRepository(FarmerRepository):
             return True
 
     def create(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new farmer record."""
         with self._lock:
             record = {"farmer_id": farmer_id, **data}
             self._data[farmer_id] = record
@@ -52,6 +58,7 @@ class InMemoryFarmerRepository(FarmerRepository):
     def create_with_aadhaar_reservation(
         self, farmer_id: str, aadhaar_hash: str, data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
+        """Atomically create a farmer record with Aadhaar reservation, or return None if conflict."""
         with self._lock:
             if farmer_id in self._data:
                 return None
@@ -68,6 +75,7 @@ class InMemoryFarmerRepository(FarmerRepository):
             return dict(record)
 
     def update(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a farmer record with the provided data."""
         with self._lock:
             record = self._data.setdefault(farmer_id, {"farmer_id": farmer_id})
             record.update(data)
@@ -75,17 +83,21 @@ class InMemoryFarmerRepository(FarmerRepository):
 
 
 class InMemoryCropRepository(CropRepository):
+    """In-memory implementation of CropRepository for development and testing."""
+
     def __init__(self) -> None:
         self._data: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
 
     def create(self, crop_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new crop record."""
         with self._lock:
             record = {"crop_id": crop_id, **data}
             self._data[crop_id] = record
             return dict(record)
 
     def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
+        """List all crops registered by a farmer."""
         with self._lock:
             return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
 
@@ -125,6 +137,8 @@ _DEFAULT_SEED_CENTRES: List[Dict[str, Any]] = [
 
 
 class InMemoryCentreRepository(CentreRepository):
+    """In-memory implementation of CentreRepository for development and testing."""
+
     def __init__(self, seed: Optional[List[Dict[str, Any]]] = None) -> None:
         self._lock = threading.Lock()
         self._data: Dict[str, Dict[str, Any]] = {
@@ -132,6 +146,7 @@ class InMemoryCentreRepository(CentreRepository):
         }
 
     def list(self, district: Optional[str] = None, state: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List procurement centres, optionally filtered by district or state."""
         with self._lock:
             records = [dict(r) for r in self._data.values()]
         if district:
@@ -141,34 +156,41 @@ class InMemoryCentreRepository(CentreRepository):
         return records
 
     def get(self, centre_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a procurement centre by ID."""
         with self._lock:
             record = self._data.get(centre_id)
             return dict(record) if record else None
 
 
 def _slot_key(centre_id: str, slot_date: date, slot_window: str) -> Tuple[str, str, str]:
+    """Generate a composite key for a slot (centre, date, window)."""
     slot_date_iso = slot_date.isoformat() if hasattr(slot_date, "isoformat") else str(slot_date)
     return (centre_id, slot_date_iso, slot_window)
 
 
 class InMemorySlotBookingRepository(SlotBookingRepository):
+    """In-memory implementation of SlotBookingRepository for development and testing."""
+
     def __init__(self) -> None:
         self._data: Dict[str, Dict[str, Any]] = {}
         self._active_counts: Dict[Tuple[str, str, str], int] = {}
         self._lock = threading.Lock()
 
     def get(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a booking by ID."""
         with self._lock:
             record = self._data.get(booking_id)
             return dict(record) if record else None
 
     def count_active_bookings(self, centre_id: str, slot_date: date, slot_window: str) -> int:
+        """Count active bookings for a specific slot."""
         with self._lock:
             return self._active_counts.get(_slot_key(centre_id, slot_date, slot_window), 0)
 
     def create_if_capacity_available(
         self, booking_id: str, capacity: int, data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
+        """Atomically create a booking if capacity is available."""
         with self._lock:
             if booking_id in self._data:
                 return None
@@ -182,10 +204,12 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
             return dict(record)
 
     def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
+        """List all bookings for a farmer."""
         with self._lock:
             return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
 
     def cancel(self, booking_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Cancel a booking and free its slot capacity."""
         with self._lock:
             record = self._data.get(booking_id)
             if record is None or record.get("farmer_id") != farmer_id:
@@ -206,16 +230,20 @@ _slot_booking_repo = InMemorySlotBookingRepository()
 
 
 def get_memory_farmer_repository() -> InMemoryFarmerRepository:
+    """Return the process-wide singleton in-memory farmer repository."""
     return _farmer_repo
 
 
 def get_memory_crop_repository() -> InMemoryCropRepository:
+    """Return the process-wide singleton in-memory crop repository."""
     return _crop_repo
 
 
 def get_memory_centre_repository() -> InMemoryCentreRepository:
+    """Return the process-wide singleton in-memory centre repository."""
     return _centre_repo
 
 
 def get_memory_slot_booking_repository() -> InMemorySlotBookingRepository:
+    """Return the process-wide singleton in-memory slot booking repository."""
     return _slot_booking_repo

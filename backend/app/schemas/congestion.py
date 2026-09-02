@@ -17,6 +17,8 @@ CONGESTION_LEVELS = ["low", "moderate", "high"]
 
 
 class SlotWindowCongestion(BaseModel):
+    """Congestion information for a single slot window."""
+
     slot_window: str
     booked_count: int
     capacity_per_slot: int
@@ -24,6 +26,8 @@ class SlotWindowCongestion(BaseModel):
 
 
 class AlternativeCentre(BaseModel):
+    """Alternative procurement centre suggestion with lower congestion."""
+
     centre_id: str
     name: str
     district: str
@@ -31,6 +35,8 @@ class AlternativeCentre(BaseModel):
 
 
 class CongestionOut(BaseModel):
+    """Congestion prediction response for a centre on a specific date."""
+
     centre_id: str
     date: date_type
     source: str = Field(

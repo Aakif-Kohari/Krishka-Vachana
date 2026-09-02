@@ -35,6 +35,7 @@ _LEVEL_ORDER = ["low", "moderate", "high"]
 
 
 def _level_for_ratio(ratio: float) -> str:
+    """Determine congestion level from booked/capacity ratio."""
     if ratio >= _HIGH_THRESHOLD:
         return "high"
     if ratio >= _MODERATE_THRESHOLD:
@@ -45,6 +46,7 @@ def _level_for_ratio(ratio: float) -> str:
 def _heuristic_windows(
     booking_repo: SlotBookingRepository, centre_id: str, slot_date: date_type, capacity: int
 ) -> List[SlotWindowCongestion]:
+    """Compute congestion for each slot window using a simple occupancy-based heuristic."""
     windows = []
     for window in SLOT_WINDOWS:
         booked = booking_repo.count_active_bookings(centre_id, slot_date, window)
@@ -67,6 +69,7 @@ def _alternative_centres(
     slot_date: date_type,
     windows: List[SlotWindowCongestion],
 ) -> List[AlternativeCentre]:
+    """Suggest alternative centres in the same district with lower congestion."""
     # Only bother suggesting alternatives if this centre isn't already
     # comfortably low-congestion across the whole day.
     if all(w.congestion_level == "low" for w in windows):
@@ -99,6 +102,7 @@ def predict_congestion(
     centre_id: str,
     slot_date: date_type,
 ) -> CongestionOut:
+    """Predict congestion for a centre on a given date, using ML model or heuristic fallback."""
     centre = centre_repo.get(centre_id)
     if centre is None:
         raise NotFoundError("Procurement centre not found")

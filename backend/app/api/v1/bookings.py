@@ -30,6 +30,7 @@ def book_slot(
     farmer_repo: FarmerRepository = Depends(get_farmer_repository),
     crop_repo: CropRepository = Depends(get_crop_repository),
 ) -> SlotBookingOut:
+    """Book a Smart Slot at a procurement centre for a specific date and time window."""
     return slot_service.book_slot(booking_repo, centre_repo, farmer_repo, crop_repo, farmer_id, payload)
 
 
@@ -38,6 +39,7 @@ def list_my_bookings(
     farmer_id: str = Depends(get_current_farmer_uid),
     booking_repo: SlotBookingRepository = Depends(get_slot_booking_repository),
 ) -> List[SlotBookingOut]:
+    """List all bookings for the authenticated farmer."""
     return slot_service.list_my_bookings(booking_repo, farmer_id)
 
 
@@ -47,6 +49,7 @@ def get_booking(
     farmer_id: str = Depends(get_current_farmer_uid),
     booking_repo: SlotBookingRepository = Depends(get_slot_booking_repository),
 ) -> SlotBookingOut:
+    """Get a specific booking by ID for the authenticated farmer."""
     return slot_service.get_my_booking(booking_repo, farmer_id, booking_id)
 
 
@@ -56,4 +59,5 @@ def cancel_booking(
     farmer_id: str = Depends(get_current_farmer_uid),
     booking_repo: SlotBookingRepository = Depends(get_slot_booking_repository),
 ) -> SlotBookingOut:
+    """Cancel a booking and free its slot capacity."""
     return slot_service.cancel_booking(booking_repo, farmer_id, booking_id)

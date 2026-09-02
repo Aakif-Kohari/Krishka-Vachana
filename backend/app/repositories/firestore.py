@@ -29,14 +29,18 @@ SLOT_CAPACITY_COUNTERS_COLLECTION = "slot_capacity_counters"
 
 
 class FirestoreFarmerRepository(FarmerRepository):
+    """Firestore-backed implementation of FarmerRepository."""
+
     def __init__(self, client) -> None:
         self._client = client
 
     def get(self, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a farmer record by ID from Firestore."""
         doc = self._client.collection(FARMERS_COLLECTION).document(farmer_id).get()
         return doc.to_dict() if doc.exists else None
 
     def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a farmer record by Aadhaar hash from Firestore."""
         query = (
             self._client.collection(FARMERS_COLLECTION)
             .where("aadhaar_hash", "==", aadhaar_hash)
@@ -46,6 +50,7 @@ class FirestoreFarmerRepository(FarmerRepository):
         return doc.to_dict() if doc is not None else None
 
     def reserve_aadhaar(self, aadhaar_hash: str, farmer_id: str) -> bool:
+        """Atomically reserve an Aadhaar hash for a farmer ID in a Firestore transaction."""
         reservation_ref = self._client.collection(AADHAAR_RESERVATIONS_COLLECTION).document(
             aadhaar_hash
         )
@@ -74,6 +79,7 @@ class FirestoreFarmerRepository(FarmerRepository):
         return reserve(transaction)
 
     def create(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new farmer record in Firestore."""
         ref = self._client.collection(FARMERS_COLLECTION).document(farmer_id)
         ref.set({"farmer_id": farmer_id, **data})
         return {"farmer_id": farmer_id, **data}
@@ -81,6 +87,7 @@ class FirestoreFarmerRepository(FarmerRepository):
     def create_with_aadhaar_reservation(
         self, farmer_id: str, aadhaar_hash: str, data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
+        """Atomically create a farmer record with Aadhaar reservation in a Firestore transaction."""
         farmer_ref = self._client.collection(FARMERS_COLLECTION).document(farmer_id)
         reservation_ref = self._client.collection(AADHAAR_RESERVATIONS_COLLECTION).document(
             aadhaar_hash
@@ -117,6 +124,7 @@ class FirestoreFarmerRepository(FarmerRepository):
         return create(transaction)
 
     def update(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a farmer record with the provided data in Firestore."""
         ref = self._client.collection(FARMERS_COLLECTION).document(farmer_id)
         ref.update(data)
         doc = ref.get()
@@ -124,15 +132,19 @@ class FirestoreFarmerRepository(FarmerRepository):
 
 
 class FirestoreCropRepository(CropRepository):
+    """Firestore-backed implementation of CropRepository."""
+
     def __init__(self, client) -> None:
         self._client = client
 
     def create(self, crop_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new crop record in Firestore."""
         ref = self._client.collection(CROPS_COLLECTION).document(crop_id)
         ref.set({"crop_id": crop_id, **data})
         return {"crop_id": crop_id, **data}
 
     def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
+        """List all crops registered by a farmer from Firestore."""
         query = self._client.collection(CROPS_COLLECTION).where("farmer_id", "==", farmer_id)
         return [doc.to_dict() for doc in query.stream()]
 
@@ -148,6 +160,7 @@ class FirestoreCentreRepository(CentreRepository):
         self._client = client
 
     def list(self, district: Optional[str] = None, state: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List procurement centres from Firestore, optionally filtered by district or state."""
         query = self._client.collection(CENTRES_COLLECTION)
         if district:
             query = query.where("district", "==", district)
@@ -156,17 +169,21 @@ class FirestoreCentreRepository(CentreRepository):
         return [doc.to_dict() for doc in query.stream()]
 
     def get(self, centre_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a procurement centre by ID from Firestore."""
         doc = self._client.collection(CENTRES_COLLECTION).document(centre_id).get()
         return doc.to_dict() if doc.exists else None
 
 
 def _slot_counter_doc_id(centre_id: str, slot_date: date, slot_window: str) -> str:
+    """Generate a document ID for a slot capacity counter."""
     slot_date_iso = slot_date.isoformat() if hasattr(slot_date, "isoformat") else str(slot_date)
     return f"{centre_id}_{slot_date_iso}_{slot_window}"
 
 
 class FirestoreSlotBookingRepository(SlotBookingRepository):
-    """TODO (coordinate with Database & Infrastructure engineer): confirm
+    """Firestore-backed implementation of SlotBookingRepository.
+
+    TODO (coordinate with Database & Infrastructure engineer): confirm
     "slot_bookings" collection name/schema, and that a dedicated counter
     doc per (centre, date, window) in SLOT_CAPACITY_COUNTERS_COLLECTION is
     an acceptable way to keep capacity checks O(1) instead of counting
@@ -177,10 +194,12 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
         self._client = client
 
     def get(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a booking by ID from Firestore."""
         doc = self._client.collection(SLOT_BOOKINGS_COLLECTION).document(booking_id).get()
         return doc.to_dict() if doc.exists else None
 
     def count_active_bookings(self, centre_id: str, slot_date: date, slot_window: str) -> int:
+        """Count active bookings for a specific slot from Firestore counter."""
         doc = (
             self._client.collection(SLOT_CAPACITY_COUNTERS_COLLECTION)
             .document(_slot_counter_doc_id(centre_id, slot_date, slot_window))
@@ -191,6 +210,7 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
     def create_if_capacity_available(
         self, booking_id: str, capacity: int, data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
+        """Atomically create a booking if capacity is available in a Firestore transaction."""
         booking_ref = self._client.collection(SLOT_BOOKINGS_COLLECTION).document(booking_id)
         counter_ref = self._client.collection(SLOT_CAPACITY_COUNTERS_COLLECTION).document(
             _slot_counter_doc_id(data["centre_id"], data["slot_date"], data["slot_window"])
@@ -216,10 +236,12 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
         return create(transaction)
 
     def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
+        """List all bookings for a farmer from Firestore."""
         query = self._client.collection(SLOT_BOOKINGS_COLLECTION).where("farmer_id", "==", farmer_id)
         return [doc.to_dict() for doc in query.stream()]
 
     def cancel(self, booking_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Cancel a booking and free its slot capacity in a Firestore transaction."""
         booking_ref = self._client.collection(SLOT_BOOKINGS_COLLECTION).document(booking_id)
         transaction = self._client.transaction()
 

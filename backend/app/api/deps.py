@@ -29,6 +29,7 @@ def get_current_farmer_uid(
     settings: Settings = Depends(get_settings),
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> str:
+    """Extract and verify the farmer's UID from the Firebase ID token in the Authorization header."""
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer":
         raise UnauthorizedError("Missing or malformed Authorization header")
@@ -59,6 +60,7 @@ def get_current_farmer_uid(
 def get_farmer_repository(
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> FarmerRepository:
+    """Return a farmer repository (Firestore-backed or in-memory fallback)."""
     client = firebase.firestore_client()
     if client is None:
         return get_memory_farmer_repository()
@@ -70,6 +72,7 @@ def get_farmer_repository(
 def get_crop_repository(
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> CropRepository:
+    """Return a crop repository (Firestore-backed or in-memory fallback)."""
     client = firebase.firestore_client()
     if client is None:
         return get_memory_crop_repository()
@@ -81,6 +84,7 @@ def get_crop_repository(
 def get_centre_repository(
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> CentreRepository:
+    """Return a centre repository (Firestore-backed or in-memory fallback)."""
     client = firebase.firestore_client()
     if client is None:
         return get_memory_centre_repository()
@@ -92,6 +96,7 @@ def get_centre_repository(
 def get_slot_booking_repository(
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> SlotBookingRepository:
+    """Return a slot booking repository (Firestore-backed or in-memory fallback)."""
     client = firebase.firestore_client()
     if client is None:
         return get_memory_slot_booking_repository()

@@ -27,6 +27,7 @@ def book_slot(
     farmer_id: str,
     payload: SlotBookingCreate,
 ) -> SlotBookingOut:
+    """Book a slot at a procurement centre with atomic capacity enforcement."""
     if farmer_repo.get(farmer_id) is None:
         raise NotFoundError("Register a farmer profile before booking a slot")
 
@@ -75,12 +76,14 @@ def book_slot(
 
 
 def list_my_bookings(booking_repo: SlotBookingRepository, farmer_id: str) -> List[SlotBookingOut]:
+    """List all bookings for a farmer, sorted by date and time (most recent first)."""
     records = booking_repo.list_by_farmer(farmer_id)
     records.sort(key=lambda r: (r["slot_date"], r["slot_window"]), reverse=True)
     return [SlotBookingOut.model_validate(r) for r in records]
 
 
 def get_my_booking(booking_repo: SlotBookingRepository, farmer_id: str, booking_id: str) -> SlotBookingOut:
+    """Get a specific booking owned by a farmer."""
     record = booking_repo.get(booking_id)
     # Booking exists but belongs to someone else: still 404, not 403, so we
     # don't leak whether a given booking_id exists to a farmer who doesn't
@@ -91,6 +94,7 @@ def get_my_booking(booking_repo: SlotBookingRepository, farmer_id: str, booking_
 
 
 def cancel_booking(booking_repo: SlotBookingRepository, farmer_id: str, booking_id: str) -> SlotBookingOut:
+    """Cancel a booking owned by a farmer and free its slot capacity."""
     record = booking_repo.cancel(booking_id, farmer_id)
     if record is None:
         raise NotFoundError("Booking not found")
