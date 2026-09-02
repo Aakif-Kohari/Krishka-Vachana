@@ -36,15 +36,6 @@ class SlotBookingCreate(BaseModel):
             raise ValueError(f"slot_window must be one of {SLOT_WINDOWS}")
         return v
 
-    @field_validator("slot_date")
-    @classmethod
-    def validate_not_past(cls, v: date) -> date:
-        """Validate that slot_date is not in the past."""
-        if v < datetime.now(timezone.utc).date():
-            raise ValueError("slot_date cannot be in the past")
-        return v
-
-
 class SlotBookingOut(BaseModel):
     """Schema for slot booking responses."""
 

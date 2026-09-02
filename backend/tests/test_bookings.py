@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.repositories.memory import (
     InMemoryCentreRepository,
     InMemoryCropRepository,
@@ -99,6 +99,16 @@ def test_book_slot_rejects_past_date(client, auth_headers, seeded_centre_id):
         headers=auth_headers,
     )
     assert response.status_code == 422
+
+
+def test_book_slot_resolves_centre_before_rejecting_past_date(client, auth_headers):
+    _register_farmer(client, auth_headers)
+    response = client.post(
+        "/api/v1/bookings",
+        json={"centre_id": "does-not-exist", "slot_date": "2020-01-01", "slot_window": "08:00-10:00"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 404
 
 
 def test_book_slot_rejects_unknown_crop_id(client, auth_headers, seeded_centre_id):
@@ -227,6 +237,29 @@ def test_capacity_enforced_once_slot_is_full():
 
     with pytest.raises(ConflictError):
         slot_service.book_slot(booking_repo, centre_repo, farmer_repo, crop_repo, "farmer-b", payload)
+
+
+def test_booking_date_uses_procurement_centre_business_timezone(monkeypatch):
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz == slot_service.PROCUREMENT_CENTRE_TIMEZONE
+            return cls(2026, 9, 3, 0, 30, tzinfo=tz)
+
+    monkeypatch.setattr(slot_service, "datetime", FixedDateTime)
+    centre_repo = _tiny_centre_repo()
+    booking_repo = InMemorySlotBookingRepository()
+    farmer_repo = InMemoryFarmerRepository()
+    crop_repo = InMemoryCropRepository()
+    farmer_repo.create("farmer-a", {})
+    payload = SlotBookingCreate(
+        centre_id="ctr-tiny", slot_date=date(2026, 9, 2), slot_window="08:00-10:00"
+    )
+
+    with pytest.raises(ValidationAppError):
+        slot_service.book_slot(
+            booking_repo, centre_repo, farmer_repo, crop_repo, "farmer-a", payload
+        )
 
 
 def test_concurrent_booking_respects_capacity():

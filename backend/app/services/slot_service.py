@@ -7,9 +7,11 @@ Aadhaar uniqueness, so two farmers racing for the last slot in a window
 can't both succeed (see tests/test_bookings.py's concurrency test).
 """
 import uuid
+from datetime import datetime
 from typing import List
+from zoneinfo import ZoneInfo
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.repositories.base import (
     CentreRepository,
     CropRepository,
@@ -17,6 +19,8 @@ from app.repositories.base import (
     SlotBookingRepository,
 )
 from app.schemas.slot import SlotBookingCreate, SlotBookingOut, utcnow
+
+PROCUREMENT_CENTRE_TIMEZONE = ZoneInfo("Asia/Kolkata")
 
 
 def book_slot(
@@ -34,6 +38,9 @@ def book_slot(
     centre = centre_repo.get(payload.centre_id)
     if centre is None:
         raise NotFoundError("Procurement centre not found")
+
+    if payload.slot_date < datetime.now(PROCUREMENT_CENTRE_TIMEZONE).date():
+        raise ValidationAppError("slot_date cannot be in the past")
 
     if payload.crop_id is not None:
         farmer_crops = crop_repo.list_by_farmer(farmer_id)
