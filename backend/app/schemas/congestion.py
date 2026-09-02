@@ -17,12 +17,26 @@ CONGESTION_LEVELS = ["low", "moderate", "high"]
 CongestionLevel = Literal["low", "moderate", "high"]
 
 
+class CongestionPredictionRequest(BaseModel):
+    """Request payload sent to AI/ML's congestion-prediction endpoint.
+
+    Typed (rather than a raw dict) so the integration contract in this
+    module's docstring can't silently drift from what
+    app/services/congestion_service.py actually sends.
+    """
+
+    centre_id: str
+    date: date_type
+    capacity_per_slot: int = Field(gt=0)
+    slot_windows: List[str]
+
+
 class SlotWindowCongestion(BaseModel):
     """Congestion information for a single slot window."""
 
     slot_window: str
-    booked_count: int
-    capacity_per_slot: int
+    booked_count: int = Field(ge=0)
+    capacity_per_slot: int = Field(gt=0)
     congestion_level: CongestionLevel = Field(description=f"One of {CONGESTION_LEVELS}")
 
 

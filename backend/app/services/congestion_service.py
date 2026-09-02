@@ -20,7 +20,12 @@ from app.core.config import Settings
 from app.core.exceptions import NotFoundError
 from app.repositories.base import CentreRepository, SlotBookingRepository
 from app.schemas.centre import SLOT_WINDOWS
-from app.schemas.congestion import AlternativeCentre, CongestionOut, SlotWindowCongestion
+from app.schemas.congestion import (
+    AlternativeCentre,
+    CongestionOut,
+    CongestionPredictionRequest,
+    SlotWindowCongestion,
+)
 
 logger = logging.getLogger("app.congestion")
 
@@ -92,7 +97,13 @@ def _alternative_centres(
                     congestion_level=best_window.congestion_level,
                 )
             )
-    return alternatives[:3]
+            # Stop once we have enough candidates - the endpoint only
+            # returns 3, so evaluating every remaining centre in the
+            # district (each costing len(SLOT_WINDOWS) repository reads)
+            # would be wasted work.
+            if len(alternatives) == 3:
+                break
+    return alternatives
 
 
 def predict_congestion(
@@ -109,14 +120,15 @@ def predict_congestion(
 
     if settings.congestion_prediction_api_url:
         try:
+            request_payload = CongestionPredictionRequest(
+                centre_id=centre_id,
+                date=slot_date,
+                capacity_per_slot=centre["capacity_per_slot"],
+                slot_windows=SLOT_WINDOWS,
+            )
             response = httpx.post(
                 settings.congestion_prediction_api_url,
-                json={
-                    "centre_id": centre_id,
-                    "date": slot_date.isoformat(),
-                    "capacity_per_slot": centre["capacity_per_slot"],
-                    "slot_windows": SLOT_WINDOWS,
-                },
+                json=request_payload.model_dump(mode="json"),
                 timeout=settings.congestion_prediction_api_timeout_seconds,
             )
             response.raise_for_status()

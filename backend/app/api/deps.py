@@ -83,11 +83,20 @@ def get_crop_repository(
 
 def get_centre_repository(
     firebase: FirebaseState = Depends(get_firebase_state),
+    settings: Settings = Depends(get_settings),
 ) -> CentreRepository:
-    """Return a centre repository (Firestore-backed or in-memory fallback)."""
+    """Return a centre repository (Firestore-backed or in-memory fallback).
+
+    Mirrors get_slot_booking_repository's fail-closed behavior below: the
+    seeded in-memory sample centres are dev/test-only data (see
+    app/repositories/memory.py), so a production deployment without
+    Firestore configured must not silently serve them as if they were real.
+    """
     client = firebase.firestore_client()
     if client is None:
-        return get_memory_centre_repository()
+        if settings.is_development:
+            return get_memory_centre_repository()
+        raise ServiceUnavailableError("Firestore is unavailable")
     from app.repositories.firestore import FirestoreCentreRepository
 
     return FirestoreCentreRepository(client)
