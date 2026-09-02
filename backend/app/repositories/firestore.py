@@ -11,12 +11,15 @@
 # via Admin SDK; Infra owns schema/security rules."
 """
 import hashlib
+import logging
 from datetime import date
 from typing import Any, Dict, List, Optional
 
 from google.cloud import firestore
 
 from app.repositories.base import CentreRepository, CropRepository, FarmerRepository, SlotBookingRepository
+
+logger = logging.getLogger("app.repositories.firestore")
 
 FARMERS_COLLECTION = "farmers"
 CROPS_COLLECTION = "crops"
@@ -158,60 +161,58 @@ class FirestoreCentreRepository(CentreRepository):
     and that documents match app/schemas/centre.py's CentreOut fields.
     """
 
+    # Fields every CentreOut requires besides centre_id (which is mapped
+    # from the Firestore document ID below, not stored as data).
+    _REQUIRED_FIELDS = ("name", "village", "district", "state", "capacity_per_slot", "created_at")
+
     def __init__(self, client) -> None:
         self._client = client
 
-    @staticmethod
-    def _normalized(value: str) -> str:
-        return value.lower()
+    def _record(self, doc) -> Optional[Dict[str, Any]]:
+        """Map a Firestore document to a centre record, or None if malformed.
 
-    def _record(self, doc) -> Dict[str, Any]:
-        record = doc.to_dict()
+        Firestore has no case-insensitive query operator (confirmed against
+        the Firestore docs - see the PR discussion this fixes), and the
+        backend has no write path for centres to keep a normalized shadow
+        field in sync (that's Infra's seeding tooling, out of this repo's
+        control - see the class docstring). At the scale of a reference
+        list of procurement centres (dozens, not millions), it's simpler
+        and more robust to fetch the collection and filter in Python here,
+        exactly like InMemoryCentreRepository does, than to depend on
+        Infra also writing extra normalized fields correctly.
+        """
+        record = dict(doc.to_dict() or {})
         record.setdefault("centre_id", doc.id)
+        missing = [f for f in self._REQUIRED_FIELDS if f not in record]
+        if missing:
+            logger.error(
+                "Firestore centre document %s is missing required field(s) %s - skipping it. "
+                "Check the seeded data against app/schemas/centre.py:CentreOut.",
+                doc.id,
+                missing,
+            )
+            return None
         return record
-
-    def _backfill_normalized_fields(self) -> None:
-        """Populate normalized filter fields on legacy and externally seeded records."""
-        collection = self._client.collection(CENTRES_COLLECTION)
-        for doc in collection.stream():
-            record = doc.to_dict()
-            updates = {}
-            for field in ("district", "state"):
-                value = record.get(field)
-                if isinstance(value, str):
-                    normalized_field = f"{field}_normalized"
-                    normalized_value = self._normalized(value)
-                    if record.get(normalized_field) != normalized_value:
-                        updates[normalized_field] = normalized_value
-            if updates:
-                collection.document(doc.id).update(updates)
 
     def list(self, district: Optional[str] = None, state: Optional[str] = None) -> List[Dict[str, Any]]:
         """List procurement centres from Firestore, optionally filtered by district or state."""
-        self._backfill_normalized_fields()
-        query = self._client.collection(CENTRES_COLLECTION)
+        records = [
+            record
+            for doc in self._client.collection(CENTRES_COLLECTION).stream()
+            if (record := self._record(doc)) is not None
+        ]
         if district:
-            query = query.where("district_normalized", "==", self._normalized(district))
+            records = [r for r in records if r["district"].lower() == district.lower()]
         if state:
-            query = query.where("state_normalized", "==", self._normalized(state))
-        return [self._record(doc) for doc in query.stream()]
+            records = [r for r in records if r["state"].lower() == state.lower()]
+        return records
 
     def get(self, centre_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a procurement centre by ID from Firestore."""
-        ref = self._client.collection(CENTRES_COLLECTION).document(centre_id)
-        doc = ref.get()
+        doc = self._client.collection(CENTRES_COLLECTION).document(centre_id).get()
         if not doc.exists:
             return None
-        record = self._record(doc)
-        updates = {
-            f"{field}_normalized": self._normalized(record[field])
-            for field in ("district", "state")
-            if isinstance(record.get(field), str)
-            and record.get(f"{field}_normalized") != self._normalized(record[field])
-        }
-        if updates:
-            ref.update(updates)
-        return record
+        return self._record(doc)
 
 
 def _slot_counter_doc_id(centre_id: str, slot_date: date, slot_window: str) -> str:
@@ -288,7 +289,7 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
             if current >= capacity:
                 return None
 
-            transaction.set(counter_ref, {"count": current + 1})
+            transaction.set(counter_ref, {"count": current + 1}, merge=True)
             transaction.create(
                 active_ref,
                 {
@@ -336,7 +337,7 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
                 )
                 counter_doc = counter_ref.get(transaction=transaction)
                 current = counter_doc.to_dict().get("count", 0) if counter_doc.exists else 0
-                transaction.set(counter_ref, {"count": max(0, current - 1)})
+                transaction.set(counter_ref, {"count": max(0, current - 1)}, merge=True)
                 transaction.delete(active_ref)
                 record["status"] = "cancelled"
                 transaction.update(booking_ref, {"status": "cancelled"})
