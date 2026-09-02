@@ -147,6 +147,41 @@ def test_uses_ml_endpoint_when_configured(monkeypatch):
     assert result.source == "ml_model"
 
 
+def test_falls_back_to_heuristic_when_ml_endpoint_returns_invalid_metrics(monkeypatch):
+    centre_repo, booking_repo = _repos()
+    settings = Settings(congestion_prediction_api_url="https://ml.example.com/predict")
+
+    class _FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            # A negative booked_count is impossible - SlotWindowCongestion's
+            # Field(ge=0) should reject this during CongestionOut
+            # construction, and predict_congestion should treat that the
+            # same as any other malformed/unreachable ML response.
+            return {
+                "windows": [
+                    {
+                        "slot_window": "08:00-10:00",
+                        "booked_count": -1,
+                        "capacity_per_slot": 2,
+                        "congestion_level": "low",
+                    }
+                ],
+                "alternative_centres": [],
+            }
+
+    def _fake_post(url, json, timeout):
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.congestion_service.httpx.post", _fake_post)
+
+    result = congestion_service.predict_congestion(settings, centre_repo, booking_repo, "ctr-a", TOMORROW)
+
+    assert result.source == "heuristic_fallback"
+
+
 def test_falls_back_to_heuristic_when_ml_endpoint_errors(monkeypatch, caplog):
     centre_repo, booking_repo = _repos()
     settings = Settings(congestion_prediction_api_url="https://ml.example.com/predict")

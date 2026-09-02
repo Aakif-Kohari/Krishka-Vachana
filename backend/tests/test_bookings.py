@@ -1,7 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 
-from app.core.exceptions import ConflictError
+import pytest
+
+from app.core.exceptions import ConflictError, NotFoundError
 from app.repositories.memory import (
     InMemoryCentreRepository,
     InMemoryCropRepository,
@@ -223,11 +225,8 @@ def test_capacity_enforced_once_slot_is_full():
     first = slot_service.book_slot(booking_repo, centre_repo, farmer_repo, crop_repo, "farmer-a", payload)
     assert first.status == "booked"
 
-    try:
+    with pytest.raises(ConflictError):
         slot_service.book_slot(booking_repo, centre_repo, farmer_repo, crop_repo, "farmer-b", payload)
-        assert False, "expected ConflictError for a full slot"
-    except ConflictError:
-        pass
 
 
 def test_concurrent_booking_respects_capacity():
@@ -313,13 +312,8 @@ def test_cannot_cancel_someone_elses_booking():
     )
     booking = slot_service.book_slot(booking_repo, centre_repo, farmer_repo, crop_repo, "farmer-a", payload)
 
-    from app.core.exceptions import NotFoundError
-
-    try:
+    with pytest.raises(NotFoundError):
         slot_service.cancel_booking(booking_repo, "farmer-b", booking.booking_id)
-        assert False, "expected NotFoundError when cancelling another farmer's booking"
-    except NotFoundError:
-        pass
 
     # Still active for its actual owner.
     assert booking_repo.get(booking.booking_id)["status"] == "booked"

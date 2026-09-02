@@ -1,6 +1,6 @@
 import pytest
 
-from app.api.deps import get_current_farmer_uid, get_slot_booking_repository
+from app.api.deps import get_centre_repository, get_current_farmer_uid, get_slot_booking_repository
 from app.core.config import Settings
 from app.core.exceptions import AppError, ServiceUnavailableError, UnauthorizedError
 from app.core.firebase import FirebaseState
@@ -14,7 +14,7 @@ class _UnconfiguredFirebase(FirebaseState):
 
 
 class _UnavailableFirestore(_UnconfiguredFirebase):
-    def firestore_client(self):
+    def firestore_client(self) -> None:
         return None
 
 
@@ -123,5 +123,20 @@ def test_slot_repository_uses_memory_only_in_development():
 def test_slot_repository_fails_closed_when_firestore_is_unavailable_in_production():
     with pytest.raises(ServiceUnavailableError):
         get_slot_booking_repository(
+            firebase=_UnavailableFirestore(), settings=Settings(environment="production")
+        )
+
+
+def test_centre_repository_uses_memory_only_in_development():
+    repository = get_centre_repository(
+        firebase=_UnavailableFirestore(), settings=Settings(environment="development")
+    )
+
+    assert repository.__class__.__name__ == "InMemoryCentreRepository"
+
+
+def test_centre_repository_fails_closed_when_firestore_is_unavailable_in_production():
+    with pytest.raises(ServiceUnavailableError):
+        get_centre_repository(
             firebase=_UnavailableFirestore(), settings=Settings(environment="production")
         )
