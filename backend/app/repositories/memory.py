@@ -5,9 +5,10 @@ app/api/deps.py), and directly in tests. Not for production use - data is
 lost on process restart and there is no cross-process consistency.
 """
 import threading
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
-from app.repositories.base import CropRepository, FarmerRepository
+from app.repositories.base import CentreRepository, CropRepository, FarmerRepository, SlotBookingRepository
 
 
 class InMemoryFarmerRepository(FarmerRepository):
@@ -89,10 +90,119 @@ class InMemoryCropRepository(CropRepository):
             return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
 
 
+# Sample procurement centres for local dev/tests, seeded until the
+# Database & Infrastructure engineer wires up a real "centres" Firestore
+# collection (see app/repositories/firestore.py). Not production data.
+_DEFAULT_SEED_CENTRES: List[Dict[str, Any]] = [
+    {
+        "centre_id": "ctr-solapur-apmc",
+        "name": "Solapur APMC Procurement Centre",
+        "village": "Solapur",
+        "district": "Solapur",
+        "state": "Maharashtra",
+        "capacity_per_slot": 40,
+        "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+    },
+    {
+        "centre_id": "ctr-pandharpur",
+        "name": "Pandharpur Procurement Centre",
+        "village": "Pandharpur",
+        "district": "Solapur",
+        "state": "Maharashtra",
+        "capacity_per_slot": 25,
+        "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+    },
+    {
+        "centre_id": "ctr-nagpur-apmc",
+        "name": "Nagpur APMC Procurement Centre",
+        "village": "Nagpur",
+        "district": "Nagpur",
+        "state": "Maharashtra",
+        "capacity_per_slot": 60,
+        "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+    },
+]
+
+
+class InMemoryCentreRepository(CentreRepository):
+    def __init__(self, seed: Optional[List[Dict[str, Any]]] = None) -> None:
+        self._lock = threading.Lock()
+        self._data: Dict[str, Dict[str, Any]] = {
+            record["centre_id"]: dict(record) for record in (seed if seed is not None else _DEFAULT_SEED_CENTRES)
+        }
+
+    def list(self, district: Optional[str] = None, state: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self._lock:
+            records = [dict(r) for r in self._data.values()]
+        if district:
+            records = [r for r in records if r.get("district", "").lower() == district.lower()]
+        if state:
+            records = [r for r in records if r.get("state", "").lower() == state.lower()]
+        return records
+
+    def get(self, centre_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            record = self._data.get(centre_id)
+            return dict(record) if record else None
+
+
+def _slot_key(centre_id: str, slot_date: date, slot_window: str) -> Tuple[str, str, str]:
+    slot_date_iso = slot_date.isoformat() if hasattr(slot_date, "isoformat") else str(slot_date)
+    return (centre_id, slot_date_iso, slot_window)
+
+
+class InMemorySlotBookingRepository(SlotBookingRepository):
+    def __init__(self) -> None:
+        self._data: Dict[str, Dict[str, Any]] = {}
+        self._active_counts: Dict[Tuple[str, str, str], int] = {}
+        self._lock = threading.Lock()
+
+    def get(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            record = self._data.get(booking_id)
+            return dict(record) if record else None
+
+    def count_active_bookings(self, centre_id: str, slot_date: date, slot_window: str) -> int:
+        with self._lock:
+            return self._active_counts.get(_slot_key(centre_id, slot_date, slot_window), 0)
+
+    def create_if_capacity_available(
+        self, booking_id: str, capacity: int, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            if booking_id in self._data:
+                return None
+            key = _slot_key(data["centre_id"], data["slot_date"], data["slot_window"])
+            current = self._active_counts.get(key, 0)
+            if current >= capacity:
+                return None
+            record = {"booking_id": booking_id, **data}
+            self._data[booking_id] = record
+            self._active_counts[key] = current + 1
+            return dict(record)
+
+    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
+        with self._lock:
+            return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
+
+    def cancel(self, booking_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            record = self._data.get(booking_id)
+            if record is None or record.get("farmer_id") != farmer_id:
+                return None
+            if record.get("status") != "cancelled":
+                key = _slot_key(record["centre_id"], record["slot_date"], record["slot_window"])
+                self._active_counts[key] = max(0, self._active_counts.get(key, 0) - 1)
+                record["status"] = "cancelled"
+            return dict(record)
+
+
 # Process-wide singletons so the fallback store behaves consistently across
 # requests within a single dev server run.
 _farmer_repo = InMemoryFarmerRepository()
 _crop_repo = InMemoryCropRepository()
+_centre_repo = InMemoryCentreRepository()
+_slot_booking_repo = InMemorySlotBookingRepository()
 
 
 def get_memory_farmer_repository() -> InMemoryFarmerRepository:
@@ -101,3 +211,11 @@ def get_memory_farmer_repository() -> InMemoryFarmerRepository:
 
 def get_memory_crop_repository() -> InMemoryCropRepository:
     return _crop_repo
+
+
+def get_memory_centre_repository() -> InMemoryCentreRepository:
+    return _centre_repo
+
+
+def get_memory_slot_booking_repository() -> InMemorySlotBookingRepository:
+    return _slot_booking_repo
