@@ -10,6 +10,7 @@
 # team_work_division.md's collaboration note: "Backend consumes Firestore
 # via Admin SDK; Infra owns schema/security rules."
 """
+import hashlib
 from datetime import date
 from typing import Any, Dict, List, Optional
 
@@ -22,6 +23,7 @@ CROPS_COLLECTION = "crops"
 AADHAAR_RESERVATIONS_COLLECTION = "aadhaar_reservations"
 CENTRES_COLLECTION = "centres"
 SLOT_BOOKINGS_COLLECTION = "slot_bookings"
+ACTIVE_SLOT_BOOKINGS_COLLECTION = "active_slot_bookings"
 # One doc per (centre_id, slot_date, slot_window), used purely as an
 # atomic counter so capacity checks don't need to scan/count booking docs
 # on every request. Doc id: f"{centre_id}_{slot_date.isoformat()}_{slot_window}".
@@ -159,25 +161,72 @@ class FirestoreCentreRepository(CentreRepository):
     def __init__(self, client) -> None:
         self._client = client
 
+    @staticmethod
+    def _normalized(value: str) -> str:
+        return value.lower()
+
+    def _record(self, doc) -> Dict[str, Any]:
+        record = doc.to_dict()
+        record.setdefault("centre_id", doc.id)
+        return record
+
+    def _backfill_normalized_fields(self) -> None:
+        """Populate normalized filter fields on legacy and externally seeded records."""
+        collection = self._client.collection(CENTRES_COLLECTION)
+        for doc in collection.stream():
+            record = doc.to_dict()
+            updates = {}
+            for field in ("district", "state"):
+                value = record.get(field)
+                if isinstance(value, str):
+                    normalized_field = f"{field}_normalized"
+                    normalized_value = self._normalized(value)
+                    if record.get(normalized_field) != normalized_value:
+                        updates[normalized_field] = normalized_value
+            if updates:
+                collection.document(doc.id).update(updates)
+
     def list(self, district: Optional[str] = None, state: Optional[str] = None) -> List[Dict[str, Any]]:
         """List procurement centres from Firestore, optionally filtered by district or state."""
+        self._backfill_normalized_fields()
         query = self._client.collection(CENTRES_COLLECTION)
         if district:
-            query = query.where("district", "==", district)
+            query = query.where("district_normalized", "==", self._normalized(district))
         if state:
-            query = query.where("state", "==", state)
-        return [doc.to_dict() for doc in query.stream()]
+            query = query.where("state_normalized", "==", self._normalized(state))
+        return [self._record(doc) for doc in query.stream()]
 
     def get(self, centre_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a procurement centre by ID from Firestore."""
-        doc = self._client.collection(CENTRES_COLLECTION).document(centre_id).get()
-        return doc.to_dict() if doc.exists else None
+        ref = self._client.collection(CENTRES_COLLECTION).document(centre_id)
+        doc = ref.get()
+        if not doc.exists:
+            return None
+        record = self._record(doc)
+        updates = {
+            f"{field}_normalized": self._normalized(record[field])
+            for field in ("district", "state")
+            if isinstance(record.get(field), str)
+            and record.get(f"{field}_normalized") != self._normalized(record[field])
+        }
+        if updates:
+            ref.update(updates)
+        return record
 
 
 def _slot_counter_doc_id(centre_id: str, slot_date: date, slot_window: str) -> str:
     """Generate a document ID for a slot capacity counter."""
     slot_date_iso = slot_date.isoformat() if hasattr(slot_date, "isoformat") else str(slot_date)
     return f"{centre_id}_{slot_date_iso}_{slot_window}"
+
+
+def _active_booking_doc_id(
+    farmer_id: str, centre_id: str, slot_date: date, slot_window: str
+) -> str:
+    """Generate a stable document ID for an active farmer/slot booking key."""
+    slot_date_iso = slot_date.isoformat() if hasattr(slot_date, "isoformat") else str(slot_date)
+    raw_key = "\0".join((farmer_id, centre_id, slot_date_iso, slot_window))
+    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
 
 
 class FirestoreSlotBookingRepository(SlotBookingRepository):
@@ -211,11 +260,17 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
         self, booking_id: str, capacity: int, data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Atomically create a booking if capacity is available in a Firestore transaction."""
+        slot_date_iso = data["slot_date"].isoformat()
         booking_ref = self._client.collection(SLOT_BOOKINGS_COLLECTION).document(booking_id)
         counter_ref = self._client.collection(SLOT_CAPACITY_COUNTERS_COLLECTION).document(
-            _slot_counter_doc_id(data["centre_id"], data["slot_date"], data["slot_window"])
+            _slot_counter_doc_id(data["centre_id"], slot_date_iso, data["slot_window"])
         )
-        record = {"booking_id": booking_id, **data}
+        active_ref = self._client.collection(ACTIVE_SLOT_BOOKINGS_COLLECTION).document(
+            _active_booking_doc_id(
+                data["farmer_id"], data["centre_id"], slot_date_iso, data["slot_window"]
+            )
+        )
+        record = {"booking_id": booking_id, **data, "slot_date": slot_date_iso}
         transaction = self._client.transaction()
 
         @firestore.transactional
@@ -224,12 +279,26 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
             if existing_booking.exists:
                 return None
 
+            active_booking = active_ref.get(transaction=transaction)
+            if active_booking.exists:
+                return None
+
             counter_doc = counter_ref.get(transaction=transaction)
             current = counter_doc.to_dict().get("count", 0) if counter_doc.exists else 0
             if current >= capacity:
                 return None
 
             transaction.set(counter_ref, {"count": current + 1})
+            transaction.create(
+                active_ref,
+                {
+                    "booking_id": booking_id,
+                    "farmer_id": data["farmer_id"],
+                    "centre_id": data["centre_id"],
+                    "slot_date": slot_date_iso,
+                    "slot_window": data["slot_window"],
+                },
+            )
             transaction.create(booking_ref, record)
             return record
 
@@ -257,9 +326,18 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
                 counter_ref = self._client.collection(SLOT_CAPACITY_COUNTERS_COLLECTION).document(
                     _slot_counter_doc_id(record["centre_id"], record["slot_date"], record["slot_window"])
                 )
+                active_ref = self._client.collection(ACTIVE_SLOT_BOOKINGS_COLLECTION).document(
+                    _active_booking_doc_id(
+                        record["farmer_id"],
+                        record["centre_id"],
+                        record["slot_date"],
+                        record["slot_window"],
+                    )
+                )
                 counter_doc = counter_ref.get(transaction=transaction)
                 current = counter_doc.to_dict().get("count", 0) if counter_doc.exists else 0
                 transaction.set(counter_ref, {"count": max(0, current - 1)})
+                transaction.delete(active_ref)
                 record["status"] = "cancelled"
                 transaction.update(booking_ref, {"status": "cancelled"})
             return record

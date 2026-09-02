@@ -52,6 +52,13 @@ class UnauthorizedError(AppError):
     error_code = "unauthorized"
 
 
+class ServiceUnavailableError(AppError):
+    """Exception for unavailable required infrastructure (503)."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    error_code = "service_unavailable"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Register custom exception handlers for the FastAPI application."""
 

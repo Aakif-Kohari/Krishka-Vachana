@@ -13,7 +13,7 @@ switch is transparent to route handlers and services.
 from fastapi import Depends, Header
 
 from app.core.config import Settings, get_settings
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import ServiceUnavailableError, UnauthorizedError
 from app.core.firebase import FirebaseState, get_firebase_state
 from app.repositories.base import CentreRepository, CropRepository, FarmerRepository, SlotBookingRepository
 from app.repositories.memory import (
@@ -95,11 +95,14 @@ def get_centre_repository(
 
 def get_slot_booking_repository(
     firebase: FirebaseState = Depends(get_firebase_state),
+    settings: Settings = Depends(get_settings),
 ) -> SlotBookingRepository:
     """Return a slot booking repository (Firestore-backed or in-memory fallback)."""
     client = firebase.firestore_client()
     if client is None:
-        return get_memory_slot_booking_repository()
+        if settings.is_development:
+            return get_memory_slot_booking_repository()
+        raise ServiceUnavailableError("Firestore is unavailable")
     from app.repositories.firestore import FirestoreSlotBookingRepository
 
     return FirestoreSlotBookingRepository(client)

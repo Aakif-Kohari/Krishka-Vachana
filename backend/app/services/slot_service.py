@@ -40,19 +40,6 @@ def book_slot(
         if not any(c["crop_id"] == payload.crop_id for c in farmer_crops):
             raise NotFoundError("crop_id does not belong to a registered crop for this farmer")
 
-    # Guard against accidental double-submission of the exact same slot by
-    # the same farmer - a separate concern from the capacity check below,
-    # which is about other farmers competing for the same seats.
-    duplicate = any(
-        b["status"] == "booked"
-        and b["centre_id"] == payload.centre_id
-        and b["slot_date"] == payload.slot_date
-        and b["slot_window"] == payload.slot_window
-        for b in booking_repo.list_by_farmer(farmer_id)
-    )
-    if duplicate:
-        raise ConflictError("You already have an active booking for this centre, date, and window")
-
     booking_id = str(uuid.uuid4())
     record = booking_repo.create_if_capacity_available(
         booking_id,
@@ -70,7 +57,7 @@ def book_slot(
     )
     if record is None:
         raise ConflictError(
-            "This slot window is fully booked - choose a different window, date, or centre"
+            "This slot is full or you already have an active booking for it"
         )
     return SlotBookingOut.model_validate(record)
 

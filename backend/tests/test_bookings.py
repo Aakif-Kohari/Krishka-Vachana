@@ -254,6 +254,35 @@ def test_concurrent_booking_respects_capacity():
     assert sum(result is not None for result in results) == 1
 
 
+def test_concurrent_same_farmer_booking_allows_exactly_one_active_booking():
+    centre_repo = _tiny_centre_repo(capacity=2)
+    booking_repo = InMemorySlotBookingRepository()
+    farmer_repo = InMemoryFarmerRepository()
+    crop_repo = InMemoryCropRepository()
+    farmer_repo.create("farmer-a", {})
+    payload = SlotBookingCreate(
+        centre_id="ctr-tiny",
+        slot_date=date.today() + timedelta(days=1),
+        slot_window="08:00-10:00",
+    )
+
+    def attempt():
+        try:
+            return slot_service.book_slot(
+                booking_repo, centre_repo, farmer_repo, crop_repo, "farmer-a", payload
+            )
+        except ConflictError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: attempt(), range(2)))
+
+    assert sum(result is not None for result in results) == 1
+    assert booking_repo.count_active_bookings(
+        payload.centre_id, payload.slot_date, payload.slot_window
+    ) == 1
+
+
 def test_cancel_frees_capacity_for_a_different_farmer():
     centre_repo = _tiny_centre_repo(capacity=1)
     booking_repo = InMemorySlotBookingRepository()

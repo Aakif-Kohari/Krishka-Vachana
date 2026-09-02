@@ -99,8 +99,10 @@ class SlotBookingRepository(ABC):
     ) -> Optional[Dict[str, Any]]:
         """Atomically create a booking iff active bookings for
         (centre_id, slot_date, slot_window) in `data` are below `capacity`.
+        The same operation also enforces at most one active booking per
+        (farmer_id, centre_id, slot_date, slot_window).
         Returns None (no partial state left behind) if the slot is full or
-        `booking_id` already exists - mirrors
+        the booking ID or active-booking key already exists - mirrors
         FarmerRepository.create_with_aadhaar_reservation's reserve-then-create
         pattern so two farmers racing for the last seat can't both win.
         """

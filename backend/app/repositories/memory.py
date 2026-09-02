@@ -174,6 +174,7 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
     def __init__(self) -> None:
         self._data: Dict[str, Dict[str, Any]] = {}
         self._active_counts: Dict[Tuple[str, str, str], int] = {}
+        self._active_booking_ids: Dict[Tuple[str, str, str, str], str] = {}
         self._lock = threading.Lock()
 
     def get(self, booking_id: str) -> Optional[Dict[str, Any]]:
@@ -194,13 +195,17 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
         with self._lock:
             if booking_id in self._data:
                 return None
-            key = _slot_key(data["centre_id"], data["slot_date"], data["slot_window"])
-            current = self._active_counts.get(key, 0)
+            slot_key = _slot_key(data["centre_id"], data["slot_date"], data["slot_window"])
+            active_key = (data["farmer_id"], *slot_key)
+            if active_key in self._active_booking_ids:
+                return None
+            current = self._active_counts.get(slot_key, 0)
             if current >= capacity:
                 return None
             record = {"booking_id": booking_id, **data}
             self._data[booking_id] = record
-            self._active_counts[key] = current + 1
+            self._active_counts[slot_key] = current + 1
+            self._active_booking_ids[active_key] = booking_id
             return dict(record)
 
     def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
@@ -215,8 +220,14 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
             if record is None or record.get("farmer_id") != farmer_id:
                 return None
             if record.get("status") != "cancelled":
-                key = _slot_key(record["centre_id"], record["slot_date"], record["slot_window"])
-                self._active_counts[key] = max(0, self._active_counts.get(key, 0) - 1)
+                slot_key = _slot_key(
+                    record["centre_id"], record["slot_date"], record["slot_window"]
+                )
+                active_key = (record["farmer_id"], *slot_key)
+                self._active_counts[slot_key] = max(
+                    0, self._active_counts.get(slot_key, 0) - 1
+                )
+                self._active_booking_ids.pop(active_key, None)
                 record["status"] = "cancelled"
             return dict(record)
 

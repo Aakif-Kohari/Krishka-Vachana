@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+from pydantic import ValidationError
 
 from app.core.config import Settings
 from app.core.exceptions import NotFoundError
@@ -158,3 +159,15 @@ def test_falls_back_to_heuristic_when_ml_endpoint_errors(monkeypatch, caplog):
     result = congestion_service.predict_congestion(settings, centre_repo, booking_repo, "ctr-a", TOMORROW)
 
     assert result.source == "heuristic_fallback"
+
+
+def test_congestion_schema_rejects_unknown_level():
+    from app.schemas.congestion import SlotWindowCongestion
+
+    with pytest.raises(ValidationError):
+        SlotWindowCongestion(
+            slot_window="08:00-10:00",
+            booked_count=0,
+            capacity_per_slot=2,
+            congestion_level="unknown",
+        )

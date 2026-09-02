@@ -9,11 +9,12 @@ behind later by standing up CONGESTION_PREDICTION_API_URL
 changes are needed on either side when that happens.
 """
 from datetime import date as date_type
-from typing import List
+from typing import List, Literal
 
 from pydantic import BaseModel, Field
 
 CONGESTION_LEVELS = ["low", "moderate", "high"]
+CongestionLevel = Literal["low", "moderate", "high"]
 
 
 class SlotWindowCongestion(BaseModel):
@@ -22,7 +23,7 @@ class SlotWindowCongestion(BaseModel):
     slot_window: str
     booked_count: int
     capacity_per_slot: int
-    congestion_level: str = Field(description=f"One of {CONGESTION_LEVELS}")
+    congestion_level: CongestionLevel = Field(description=f"One of {CONGESTION_LEVELS}")
 
 
 class AlternativeCentre(BaseModel):
@@ -31,7 +32,7 @@ class AlternativeCentre(BaseModel):
     centre_id: str
     name: str
     district: str
-    congestion_level: str
+    congestion_level: CongestionLevel
 
 
 class CongestionOut(BaseModel):
