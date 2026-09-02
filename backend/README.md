@@ -63,7 +63,7 @@ deployable as-is rather than a throwaway prototype:
     workers) and a `Procfile` for platforms that use one instead
   - Config fully via environment variables (`.env.example`), no
     hardcoded secrets
-- Test suite (82 tests) covering all of the above.
+- Test suite (95 tests) covering all of the above.
 
 ### Roadmap (remaining phases, future PRs)
 
@@ -133,7 +133,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-82/82 tests currently pass, covering registration validation (including
+95/95 tests currently pass, covering registration validation (including
 Aadhaar/phone format checks and duplicate-registration handling), profile
 updates, crop registration, procurement-centre listing/filtering, Smart
 Slot booking (including atomic capacity enforcement under concurrent

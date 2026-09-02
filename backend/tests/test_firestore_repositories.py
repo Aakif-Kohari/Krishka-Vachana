@@ -20,27 +20,73 @@ def _snapshot(*, exists, data=None, doc_id="doc-id"):
     return snapshot
 
 
-def test_centre_list_backfills_normalized_fields_and_maps_document_id():
+_VALID_CENTRE_DATA = {
+    "name": "Test Centre",
+    "village": "Testville",
+    "district": "Solapur",
+    "state": "Maharashtra",
+    "capacity_per_slot": 10,
+    "created_at": "2026-01-01T00:00:00+00:00",
+}
+
+
+def test_centre_list_maps_document_id_and_filters_case_insensitively():
     client = MagicMock()
     collection = MagicMock()
-    query = MagicMock()
-    document = _snapshot(
-        exists=True,
-        doc_id="centre-from-doc-id",
-        data={"district": "Solapur", "state": "Maharashtra"},
-    )
+    document = _snapshot(exists=True, doc_id="centre-from-doc-id", data=dict(_VALID_CENTRE_DATA))
     client.collection.return_value = collection
     collection.stream.return_value = [document]
-    collection.where.return_value = query
-    query.stream.return_value = [document]
 
+    # No Firestore query filter is applied server-side (Firestore has no
+    # case-insensitive operator) - filtering happens in Python, matching
+    # InMemoryCentreRepository's behavior.
     records = FirestoreCentreRepository(client).list(district="SOLAPUR")
 
+    assert len(records) == 1
     assert records[0]["centre_id"] == "centre-from-doc-id"
-    collection.where.assert_called_once_with("district_normalized", "==", "solapur")
-    collection.document.return_value.update.assert_called_once_with(
-        {"district_normalized": "solapur", "state_normalized": "maharashtra"}
-    )
+    collection.where.assert_not_called()
+
+
+def test_centre_list_filters_out_non_matching_district():
+    client = MagicMock()
+    collection = MagicMock()
+    document = _snapshot(exists=True, doc_id="centre-1", data=dict(_VALID_CENTRE_DATA))
+    client.collection.return_value = collection
+    collection.stream.return_value = [document]
+
+    assert FirestoreCentreRepository(client).list(district="Nagpur") == []
+
+
+def test_centre_list_skips_documents_missing_required_fields():
+    client = MagicMock()
+    collection = MagicMock()
+    malformed = _snapshot(exists=True, doc_id="incomplete-centre", data={"name": "Only A Name"})
+    client.collection.return_value = collection
+    collection.stream.return_value = [malformed]
+
+    assert FirestoreCentreRepository(client).list() == []
+
+
+def test_centre_get_maps_document_id():
+    client = MagicMock()
+    collection = MagicMock()
+    document = _snapshot(exists=True, doc_id="centre-from-doc-id", data=dict(_VALID_CENTRE_DATA))
+    client.collection.return_value = collection
+    collection.document.return_value.get.return_value = document
+
+    record = FirestoreCentreRepository(client).get("centre-from-doc-id")
+
+    assert record["centre_id"] == "centre-from-doc-id"
+
+
+def test_centre_get_returns_none_for_malformed_document():
+    client = MagicMock()
+    collection = MagicMock()
+    malformed = _snapshot(exists=True, doc_id="incomplete-centre", data={"name": "Only A Name"})
+    client.collection.return_value = collection
+    collection.document.return_value.get.return_value = malformed
+
+    assert FirestoreCentreRepository(client).get("incomplete-centre") is None
 
 
 def test_firestore_booking_serializes_date_and_creates_active_key(monkeypatch):
