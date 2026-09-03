@@ -59,4 +59,7 @@ def test_status_page_labels_congestion_prediction_state(client):
         congestion_prediction_api_url="https://ml.example.com/predict"
     )
     response = client.get("/status")
-    assert '<span class="badge badge-ok">configured</span>' in response.text
+    assert (
+        '<tr><th>Congestion prediction (AI/ML)</th><td>'
+        '<span class="badge badge-ok">configured</span></td></tr>'
+    ) in response.text
