@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Providers from "@/components/common/Providers";
 
 export const metadata: Metadata = {
-  title: "Krishka Vachana – Smart Farmer Procurement Platform",
+  title: "Krishka Vachana — Smart Farmer Procurement Platform",
   description:
     "Krishka Vachana helps farmers book smart procurement slots, track their queue in real-time, and receive transparent payments — all in one place.",
   keywords: [
@@ -38,7 +39,9 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }
