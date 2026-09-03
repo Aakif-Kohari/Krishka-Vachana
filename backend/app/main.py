@@ -39,6 +39,7 @@ if settings.enable_docs:
 
 @app.get("/")
 def root() -> dict:
+    """Return basic API information and links to documentation and health endpoints."""
     return {
         "name": "KisanSetu API",
         "version": settings.app_version,

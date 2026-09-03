@@ -1,8 +1,8 @@
 import pytest
 
-from app.api.deps import get_current_farmer_uid
+from app.api.deps import get_centre_repository, get_current_farmer_uid, get_slot_booking_repository
 from app.core.config import Settings
-from app.core.exceptions import AppError, UnauthorizedError
+from app.core.exceptions import AppError, ServiceUnavailableError, UnauthorizedError
 from app.core.firebase import FirebaseState
 from app.core.secrets import get_aadhaar_hmac_key
 
@@ -11,6 +11,11 @@ class _UnconfiguredFirebase(FirebaseState):
     @property
     def is_configured(self) -> bool:
         return False
+
+
+class _UnavailableFirestore(_UnconfiguredFirebase):
+    def firestore_client(self) -> None:
+        return None
 
 
 def test_missing_authorization_header_rejected():
@@ -104,4 +109,34 @@ def test_unconfigured_firebase_rejected_outside_dev_fallback():
     with pytest.raises(UnauthorizedError):
         get_current_farmer_uid(
             authorization="Bearer some-token", settings=settings, firebase=_UnconfiguredFirebase()
+        )
+
+
+def test_slot_repository_uses_memory_only_in_development():
+    repository = get_slot_booking_repository(
+        firebase=_UnavailableFirestore(), settings=Settings(environment="development")
+    )
+
+    assert repository.__class__.__name__ == "InMemorySlotBookingRepository"
+
+
+def test_slot_repository_fails_closed_when_firestore_is_unavailable_in_production():
+    with pytest.raises(ServiceUnavailableError):
+        get_slot_booking_repository(
+            firebase=_UnavailableFirestore(), settings=Settings(environment="production")
+        )
+
+
+def test_centre_repository_uses_memory_only_in_development():
+    repository = get_centre_repository(
+        firebase=_UnavailableFirestore(), settings=Settings(environment="development")
+    )
+
+    assert repository.__class__.__name__ == "InMemoryCentreRepository"
+
+
+def test_centre_repository_fails_closed_when_firestore_is_unavailable_in_production():
+    with pytest.raises(ServiceUnavailableError):
+        get_centre_repository(
+            firebase=_UnavailableFirestore(), settings=Settings(environment="production")
         )

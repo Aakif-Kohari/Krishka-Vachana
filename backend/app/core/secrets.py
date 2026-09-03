@@ -41,6 +41,7 @@ _PINNED_VERSION_RE = re.compile(r"^projects/[^/]+/secrets/[^/]+/versions/\d+$")
 
 
 def _unavailable() -> AppError:
+    """Create a 503 error indicating Aadhaar registration is unavailable."""
     return AppError(
         "Aadhaar registration is temporarily unavailable",
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -50,6 +51,7 @@ def _unavailable() -> AppError:
 
 @lru_cache
 def _access_secret(resource_name: str) -> bytes:
+    """Retrieve a secret from Google Secret Manager by resource name."""
     from google.cloud import secretmanager
 
     client = secretmanager.SecretManagerServiceClient()

@@ -11,6 +11,7 @@ _FINGERPRINT_VERSION = "hmac-sha256:v1"
 
 
 def _normalize_aadhaar(aadhaar_number: str) -> str:
+    """Normalize Aadhaar number by stripping whitespace."""
     return aadhaar_number.strip()
 
 
@@ -27,6 +28,7 @@ def _fingerprint_aadhaar(aadhaar_number: str, key: bytes) -> str:
 
 
 def _legacy_aadhaar_hash(aadhaar_number: str) -> str:
+    """Compute the legacy unkeyed SHA-256 hash of an Aadhaar number for migration purposes."""
     normalized = _normalize_aadhaar(aadhaar_number).encode("utf-8")
     return hashlib.sha256(normalized).hexdigest()
 
@@ -37,6 +39,7 @@ def register_farmer(
     payload: FarmerCreate,
     aadhaar_hmac_key: bytes,
 ) -> FarmerOut:
+    """Register a new farmer profile with Aadhaar-linked identification and duplicate detection."""
     existing = repo.get(farmer_id)
     if existing is not None:
         raise ConflictError("Farmer profile already exists for this account")
@@ -74,6 +77,7 @@ def register_farmer(
 
 
 def get_farmer_profile(repo: FarmerRepository, farmer_id: str) -> FarmerOut:
+    """Retrieve a farmer's profile by ID."""
     record = repo.get(farmer_id)
     if record is None:
         raise NotFoundError("Farmer profile not found - register first")
@@ -81,6 +85,7 @@ def get_farmer_profile(repo: FarmerRepository, farmer_id: str) -> FarmerOut:
 
 
 def update_farmer_profile(repo: FarmerRepository, farmer_id: str, payload: FarmerUpdate) -> FarmerOut:
+    """Update a farmer's profile with the provided fields."""
     if repo.get(farmer_id) is None:
         raise NotFoundError("Farmer profile not found - register first")
 

@@ -88,6 +88,7 @@ BASE_STYLE = f"""
 
 
 def page_shell(title: str, body_html: str) -> str:
+    """Wrap body HTML in a branded page shell with consistent styling."""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>

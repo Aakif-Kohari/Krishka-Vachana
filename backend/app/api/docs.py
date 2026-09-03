@@ -28,6 +28,7 @@ _SWAGGER_BRAND_CSS = f"""
 
 @router.get("/docs", response_class=HTMLResponse)
 def custom_swagger_docs() -> HTMLResponse:
+    """Serve custom-branded Swagger UI documentation."""
     response = get_swagger_ui_html(
         openapi_url="/openapi.json",
         title="KisanSetu API - Docs",
@@ -41,12 +42,17 @@ def status_page(
     settings: Settings = Depends(get_settings),
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> HTMLResponse:
+    """Serve a human-readable status page showing service health and configuration."""
     if firebase.is_configured:
         firebase_badge = '<span class="badge badge-ok">configured</span>'
     elif settings.is_development and settings.allow_dev_auth_fallback:
         firebase_badge = '<span class="badge badge-warn">using in-memory fallback</span>'
     else:
         firebase_badge = '<span class="badge badge-warn">not configured</span>'
+    if settings.congestion_prediction_api_url:
+        congestion_badge = '<span class="badge badge-ok">configured</span>'
+    else:
+        congestion_badge = '<span class="badge badge-warn">using heuristic fallback</span>'
     version = settings.app_version
     environment = settings.environment
     api_prefix = settings.api_v1_prefix
@@ -58,6 +64,7 @@ def status_page(
           <tr><th>Version</th><td><code>{version}</code></td></tr>
           <tr><th>Environment</th><td><code>{environment}</code></td></tr>
           <tr><th>Firebase</th><td>{firebase_badge}</td></tr>
+          <tr><th>Congestion prediction (AI/ML)</th><td>{congestion_badge}</td></tr>
         </table>
       </div>
       <div class="card">

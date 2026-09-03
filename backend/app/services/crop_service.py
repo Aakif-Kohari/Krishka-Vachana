@@ -13,6 +13,7 @@ def register_crop(
     farmer_id: str,
     payload: CropRegistrationCreate,
 ) -> CropOut:
+    """Register a new crop and quantity for a farmer."""
     if farmer_repo.get(farmer_id) is None:
         raise NotFoundError("Register a farmer profile before registering crops")
 
@@ -32,6 +33,7 @@ def register_crop(
 
 
 def list_crops_for_farmer(crop_repo: CropRepository, farmer_id: str) -> List[CropOut]:
+    """List all crops registered by a farmer, sorted by creation date (newest first)."""
     records = crop_repo.list_by_farmer(farmer_id)
     records.sort(key=lambda r: r["created_at"], reverse=True)
     return [CropOut.model_validate(r) for r in records]

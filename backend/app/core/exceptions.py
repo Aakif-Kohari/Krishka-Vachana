@@ -25,28 +25,46 @@ class AppError(Exception):
 
 
 class NotFoundError(AppError):
+    """Exception for resource not found errors (404)."""
+
     status_code = status.HTTP_404_NOT_FOUND
     error_code = "not_found"
 
 
 class ConflictError(AppError):
+    """Exception for resource conflict errors (409)."""
+
     status_code = status.HTTP_409_CONFLICT
     error_code = "conflict"
 
 
 class ValidationAppError(AppError):
+    """Exception for validation errors (422)."""
+
     status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     error_code = "validation_error"
 
 
 class UnauthorizedError(AppError):
+    """Exception for authentication/authorization errors (401)."""
+
     status_code = status.HTTP_401_UNAUTHORIZED
     error_code = "unauthorized"
 
 
+class ServiceUnavailableError(AppError):
+    """Exception for unavailable required infrastructure (503)."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    error_code = "service_unavailable"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
+    """Register custom exception handlers for the FastAPI application."""
+
     @app.exception_handler(AppError)
-    async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+    async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
+        """Handle AppError exceptions and return consistent error responses."""
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": {"code": exc.error_code, "message": exc.message}},
@@ -54,8 +72,9 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def handle_request_validation_error(
-        request: Request, exc: RequestValidationError
+        _request: Request, _exc: RequestValidationError
     ) -> JSONResponse:
+        """Handle FastAPI request validation errors and return consistent error responses."""
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={

@@ -12,6 +12,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Application settings loaded from environment variables or .env file."""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     environment: str = "development"
@@ -29,6 +31,16 @@ class Settings(BaseSettings):
     allow_dev_auth_fallback: bool = False
     aadhaar_hmac_secret_name: str = ""
 
+    # AI/ML congestion-prediction integration point (Phase 2). AI/ML's real
+    # endpoint doesn't exist yet - leave this unset and the backend serves a
+    # deterministic occupancy-based heuristic instead (same
+    # graceful-degradation shape as the Firebase fallback above). Once
+    # AI/ML stands up an endpoint matching app/schemas/congestion.py's
+    # contract, set this and no other code changes are needed. See
+    # app/services/congestion_service.py.
+    congestion_prediction_api_url: str = ""
+    congestion_prediction_api_timeout_seconds: float = 3.0
+
     # CORS
     cors_origins: str = "http://localhost:3000"
 
@@ -45,21 +57,26 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> List[str]:
+        """Parse comma-separated CORS origins into a list."""
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @property
     def is_development(self) -> bool:
+        """Check if the application is running in development mode."""
         return self.environment.lower() == "development"
 
     @property
     def firestore_emulator_host_effective(self) -> str:
+        """Return the effective Firestore emulator host, falling back to the generic Firebase emulator host."""
         return self.firestore_emulator_host or self.firebase_emulator_host
 
     @property
     def firebase_auth_emulator_host_effective(self) -> str:
+        """Return the effective Firebase Auth emulator host, falling back to the generic Firebase emulator host."""
         return self.firebase_auth_emulator_host or self.firebase_emulator_host
 
 
 @lru_cache
 def get_settings() -> Settings:
+    """Return the cached application settings instance."""
     return Settings()

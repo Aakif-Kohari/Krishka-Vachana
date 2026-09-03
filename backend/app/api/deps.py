@@ -13,10 +13,15 @@ switch is transparent to route handlers and services.
 from fastapi import Depends, Header
 
 from app.core.config import Settings, get_settings
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import ServiceUnavailableError, UnauthorizedError
 from app.core.firebase import FirebaseState, get_firebase_state
-from app.repositories.base import CropRepository, FarmerRepository
-from app.repositories.memory import get_memory_crop_repository, get_memory_farmer_repository
+from app.repositories.base import CentreRepository, CropRepository, FarmerRepository, SlotBookingRepository
+from app.repositories.memory import (
+    get_memory_centre_repository,
+    get_memory_crop_repository,
+    get_memory_farmer_repository,
+    get_memory_slot_booking_repository,
+)
 
 
 def get_current_farmer_uid(
@@ -24,6 +29,7 @@ def get_current_farmer_uid(
     settings: Settings = Depends(get_settings),
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> str:
+    """Extract and verify the farmer's UID from the Firebase ID token in the Authorization header."""
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer":
         raise UnauthorizedError("Missing or malformed Authorization header")
@@ -54,6 +60,7 @@ def get_current_farmer_uid(
 def get_farmer_repository(
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> FarmerRepository:
+    """Return a farmer repository (Firestore-backed or in-memory fallback)."""
     client = firebase.firestore_client()
     if client is None:
         return get_memory_farmer_repository()
@@ -65,9 +72,46 @@ def get_farmer_repository(
 def get_crop_repository(
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> CropRepository:
+    """Return a crop repository (Firestore-backed or in-memory fallback)."""
     client = firebase.firestore_client()
     if client is None:
         return get_memory_crop_repository()
     from app.repositories.firestore import FirestoreCropRepository
 
     return FirestoreCropRepository(client)
+
+
+def get_centre_repository(
+    firebase: FirebaseState = Depends(get_firebase_state),
+    settings: Settings = Depends(get_settings),
+) -> CentreRepository:
+    """Return a centre repository (Firestore-backed or in-memory fallback).
+
+    Mirrors get_slot_booking_repository's fail-closed behavior below: the
+    seeded in-memory sample centres are dev/test-only data (see
+    app/repositories/memory.py), so a production deployment without
+    Firestore configured must not silently serve them as if they were real.
+    """
+    client = firebase.firestore_client()
+    if client is None:
+        if settings.is_development:
+            return get_memory_centre_repository()
+        raise ServiceUnavailableError("Firestore is unavailable")
+    from app.repositories.firestore import FirestoreCentreRepository
+
+    return FirestoreCentreRepository(client)
+
+
+def get_slot_booking_repository(
+    firebase: FirebaseState = Depends(get_firebase_state),
+    settings: Settings = Depends(get_settings),
+) -> SlotBookingRepository:
+    """Return a slot booking repository (Firestore-backed or in-memory fallback)."""
+    client = firebase.firestore_client()
+    if client is None:
+        if settings.is_development:
+            return get_memory_slot_booking_repository()
+        raise ServiceUnavailableError("Firestore is unavailable")
+    from app.repositories.firestore import FirestoreSlotBookingRepository
+
+    return FirestoreSlotBookingRepository(client)
