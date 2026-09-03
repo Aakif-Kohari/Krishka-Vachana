@@ -63,7 +63,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     """Register custom exception handlers for the FastAPI application."""
 
     @app.exception_handler(AppError)
-    async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+    async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
         """Handle AppError exceptions and return consistent error responses."""
         return JSONResponse(
             status_code=exc.status_code,
@@ -72,7 +72,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def handle_request_validation_error(
-        request: Request, exc: RequestValidationError
+        _request: Request, _exc: RequestValidationError
     ) -> JSONResponse:
         """Handle FastAPI request validation errors and return consistent error responses."""
         return JSONResponse(

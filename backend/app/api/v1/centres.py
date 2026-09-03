@@ -17,7 +17,7 @@ router = APIRouter(prefix="/centres", tags=["centres"])
 def list_centres(
     district: Optional[str] = Query(default=None, description="Filter by district"),
     state: Optional[str] = Query(default=None, description="Filter by state"),
-    farmer_id: str = Depends(get_current_farmer_uid),
+    _farmer_id: str = Depends(get_current_farmer_uid),
     repo: CentreRepository = Depends(get_centre_repository),
 ) -> List[CentreOut]:
     """List procurement centres, optionally filtered by district or state."""
@@ -27,7 +27,7 @@ def list_centres(
 @router.get("/{centre_id}", response_model=CentreOut)
 def get_centre(
     centre_id: str,
-    farmer_id: str = Depends(get_current_farmer_uid),
+    _farmer_id: str = Depends(get_current_farmer_uid),
     repo: CentreRepository = Depends(get_centre_repository),
 ) -> CentreOut:
     """Get a procurement centre by ID."""
@@ -38,7 +38,7 @@ def get_centre(
 def get_centre_congestion(
     centre_id: str,
     slot_date: date_type = Query(description="Date to predict congestion for (YYYY-MM-DD)"),
-    farmer_id: str = Depends(get_current_farmer_uid),
+    _farmer_id: str = Depends(get_current_farmer_uid),
     settings: Settings = Depends(get_settings),
     centre_repo: CentreRepository = Depends(get_centre_repository),
     booking_repo: SlotBookingRepository = Depends(get_slot_booking_repository),

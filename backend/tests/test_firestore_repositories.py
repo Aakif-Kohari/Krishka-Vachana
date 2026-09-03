@@ -33,7 +33,11 @@ _VALID_CENTRE_DATA = {
 def test_centre_list_maps_document_id_and_filters_case_insensitively():
     client = MagicMock()
     collection = MagicMock()
-    document = _snapshot(exists=True, doc_id="centre-from-doc-id", data=dict(_VALID_CENTRE_DATA))
+    document = _snapshot(
+        exists=True,
+        doc_id="centre-from-doc-id",
+        data={**_VALID_CENTRE_DATA, "centre_id": "legacy-centre-id"},
+    )
     client.collection.return_value = collection
     collection.stream.return_value = [document]
 
@@ -61,6 +65,20 @@ def test_centre_list_skips_documents_missing_required_fields():
     client = MagicMock()
     collection = MagicMock()
     malformed = _snapshot(exists=True, doc_id="incomplete-centre", data={"name": "Only A Name"})
+    client.collection.return_value = collection
+    collection.stream.return_value = [malformed]
+
+    assert FirestoreCentreRepository(client).list() == []
+
+
+def test_centre_list_skips_documents_with_invalid_field_types():
+    client = MagicMock()
+    collection = MagicMock()
+    malformed = _snapshot(
+        exists=True,
+        doc_id="bad-centre",
+        data={**_VALID_CENTRE_DATA, "district": 123},
+    )
     client.collection.return_value = collection
     collection.stream.return_value = [malformed]
 

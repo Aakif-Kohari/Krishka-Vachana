@@ -16,8 +16,10 @@ from datetime import date
 from typing import Any, Dict, List, Optional
 
 from google.cloud import firestore
+from pydantic import ValidationError
 
 from app.repositories.base import CentreRepository, CropRepository, FarmerRepository, SlotBookingRepository
+from app.schemas.centre import CentreOut
 
 logger = logging.getLogger("app.repositories.firestore")
 
@@ -182,7 +184,7 @@ class FirestoreCentreRepository(CentreRepository):
         Infra also writing extra normalized fields correctly.
         """
         record = dict(doc.to_dict() or {})
-        record.setdefault("centre_id", doc.id)
+        record["centre_id"] = doc.id
         missing = [f for f in self._REQUIRED_FIELDS if f not in record]
         if missing:
             logger.error(
@@ -192,7 +194,15 @@ class FirestoreCentreRepository(CentreRepository):
                 missing,
             )
             return None
-        return record
+        try:
+            return CentreOut.model_validate(record).model_dump(mode="python")
+        except ValidationError:
+            logger.error(
+                "Firestore centre document %s has invalid field types/values - skipping it. "
+                "Check the seeded data against app/schemas/centre.py:CentreOut.",
+                doc.id,
+            )
+            return None
 
     def list(self, district: Optional[str] = None, state: Optional[str] = None) -> List[Dict[str, Any]]:
         """List procurement centres from Firestore, optionally filtered by district or state."""
@@ -215,14 +225,14 @@ class FirestoreCentreRepository(CentreRepository):
         return self._record(doc)
 
 
-def _slot_counter_doc_id(centre_id: str, slot_date: date, slot_window: str) -> str:
+def _slot_counter_doc_id(centre_id: str, slot_date: date | str, slot_window: str) -> str:
     """Generate a document ID for a slot capacity counter."""
     slot_date_iso = slot_date.isoformat() if hasattr(slot_date, "isoformat") else str(slot_date)
     return f"{centre_id}_{slot_date_iso}_{slot_window}"
 
 
 def _active_booking_doc_id(
-    farmer_id: str, centre_id: str, slot_date: date, slot_window: str
+    farmer_id: str, centre_id: str, slot_date: date | str, slot_window: str
 ) -> str:
     """Generate a stable document ID for an active farmer/slot booking key."""
     slot_date_iso = slot_date.isoformat() if hasattr(slot_date, "isoformat") else str(slot_date)

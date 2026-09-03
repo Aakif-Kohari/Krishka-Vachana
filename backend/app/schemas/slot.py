@@ -17,7 +17,11 @@ from app.schemas.centre import SLOT_WINDOWS
 
 
 class SlotBookingCreate(BaseModel):
-    """Schema for creating a Smart Slot booking."""
+    """Schema for creating a Smart Slot booking.
+
+    Note: "slot_date must not be in the past" is a centre-business-timezone
+    rule enforced in app/services/slot_service.py.
+    """
 
     centre_id: str = Field(min_length=1)
     slot_date: date = Field(description="Date the farmer intends to arrive (YYYY-MM-DD)")
