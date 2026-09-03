@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # SMS gateway
     sms_gateway_api_key: str = ""
     sms_gateway_base_url: str = ""
+    sms_gateway_timeout_seconds: float = 5.0
+
+    # Phone-number OTP verification (Phase 3, see app/services/otp_service.py).
+    # Independent of Firebase Authentication - see app/schemas/otp.py.
+    otp_length: int = 6
+    otp_ttl_seconds: int = 600
+    otp_max_attempts: int = 5
 
     # API
     api_v1_prefix: str = "/api/v1"
