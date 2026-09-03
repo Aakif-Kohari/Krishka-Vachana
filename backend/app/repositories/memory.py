@@ -1,0 +1,260 @@
+"""In-memory repository implementations.
+
+Used automatically when Firebase/Firestore isn't configured yet (see
+app/api/deps.py), and directly in tests. Not for production use - data is
+lost on process restart and there is no cross-process consistency.
+"""
+import threading
+from datetime import date, datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
+from app.repositories.base import CentreRepository, CropRepository, FarmerRepository, SlotBookingRepository
+
+
+class InMemoryFarmerRepository(FarmerRepository):
+    """In-memory implementation of FarmerRepository for development and testing."""
+
+    def __init__(self) -> None:
+        self._data: Dict[str, Dict[str, Any]] = {}
+        self._aadhaar_reservations: Dict[str, str] = {}
+        self._lock = threading.Lock()
+
+    def get(self, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a farmer record by ID."""
+        with self._lock:
+            record = self._data.get(farmer_id)
+            return dict(record) if record else None
+
+    def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a farmer record by Aadhaar hash."""
+        with self._lock:
+            return next(
+                (
+                    dict(record)
+                    for record in self._data.values()
+                    if record.get("aadhaar_hash") == aadhaar_hash
+                ),
+                None,
+            )
+
+    def reserve_aadhaar(self, aadhaar_hash: str, farmer_id: str) -> bool:
+        """Atomically reserve an Aadhaar hash for a farmer ID."""
+        with self._lock:
+            owner = self._aadhaar_reservations.get(aadhaar_hash)
+            if owner is not None:
+                return owner == farmer_id
+            if any(record.get("aadhaar_hash") == aadhaar_hash for record in self._data.values()):
+                return False
+            self._aadhaar_reservations[aadhaar_hash] = farmer_id
+            return True
+
+    def create(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new farmer record."""
+        with self._lock:
+            record = {"farmer_id": farmer_id, **data}
+            self._data[farmer_id] = record
+            return dict(record)
+
+    def create_with_aadhaar_reservation(
+        self, farmer_id: str, aadhaar_hash: str, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Atomically create a farmer record with Aadhaar reservation, or return None if conflict."""
+        with self._lock:
+            if farmer_id in self._data:
+                return None
+
+            owner = self._aadhaar_reservations.get(aadhaar_hash)
+            if owner is not None and owner != farmer_id:
+                return None
+            if any(record.get("aadhaar_hash") == aadhaar_hash for record in self._data.values()):
+                return None
+
+            record = {"farmer_id": farmer_id, **data, "aadhaar_hash": aadhaar_hash}
+            self._aadhaar_reservations[aadhaar_hash] = farmer_id
+            self._data[farmer_id] = record
+            return dict(record)
+
+    def update(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a farmer record with the provided data."""
+        with self._lock:
+            record = self._data.setdefault(farmer_id, {"farmer_id": farmer_id})
+            record.update(data)
+            return dict(record)
+
+
+class InMemoryCropRepository(CropRepository):
+    """In-memory implementation of CropRepository for development and testing."""
+
+    def __init__(self) -> None:
+        self._data: Dict[str, Dict[str, Any]] = {}
+        self._lock = threading.Lock()
+
+    def create(self, crop_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new crop record."""
+        with self._lock:
+            record = {"crop_id": crop_id, **data}
+            self._data[crop_id] = record
+            return dict(record)
+
+    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
+        """List all crops registered by a farmer."""
+        with self._lock:
+            return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
+
+
+# Sample procurement centres for local dev/tests, seeded until the
+# Database & Infrastructure engineer wires up a real "centres" Firestore
+# collection (see app/repositories/firestore.py). Not production data.
+_DEFAULT_SEED_CENTRES: List[Dict[str, Any]] = [
+    {
+        "centre_id": "ctr-solapur-apmc",
+        "name": "Solapur APMC Procurement Centre",
+        "village": "Solapur",
+        "district": "Solapur",
+        "state": "Maharashtra",
+        "capacity_per_slot": 40,
+        "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+    },
+    {
+        "centre_id": "ctr-pandharpur",
+        "name": "Pandharpur Procurement Centre",
+        "village": "Pandharpur",
+        "district": "Solapur",
+        "state": "Maharashtra",
+        "capacity_per_slot": 25,
+        "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+    },
+    {
+        "centre_id": "ctr-nagpur-apmc",
+        "name": "Nagpur APMC Procurement Centre",
+        "village": "Nagpur",
+        "district": "Nagpur",
+        "state": "Maharashtra",
+        "capacity_per_slot": 60,
+        "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+    },
+]
+
+
+class InMemoryCentreRepository(CentreRepository):
+    """In-memory implementation of CentreRepository for development and testing."""
+
+    def __init__(self, seed: Optional[List[Dict[str, Any]]] = None) -> None:
+        self._lock = threading.Lock()
+        self._data: Dict[str, Dict[str, Any]] = {
+            record["centre_id"]: dict(record) for record in (seed if seed is not None else _DEFAULT_SEED_CENTRES)
+        }
+
+    def list(self, district: Optional[str] = None, state: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List procurement centres, optionally filtered by district or state."""
+        with self._lock:
+            records = [dict(r) for r in self._data.values()]
+        if district:
+            records = [r for r in records if r.get("district", "").lower() == district.lower()]
+        if state:
+            records = [r for r in records if r.get("state", "").lower() == state.lower()]
+        return records
+
+    def get(self, centre_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a procurement centre by ID."""
+        with self._lock:
+            record = self._data.get(centre_id)
+            return dict(record) if record else None
+
+
+def _slot_key(centre_id: str, slot_date: date, slot_window: str) -> Tuple[str, str, str]:
+    """Generate a composite key for a slot (centre, date, window)."""
+    slot_date_iso = slot_date.isoformat() if hasattr(slot_date, "isoformat") else str(slot_date)
+    return (centre_id, slot_date_iso, slot_window)
+
+
+class InMemorySlotBookingRepository(SlotBookingRepository):
+    """In-memory implementation of SlotBookingRepository for development and testing."""
+
+    def __init__(self) -> None:
+        self._data: Dict[str, Dict[str, Any]] = {}
+        self._active_counts: Dict[Tuple[str, str, str], int] = {}
+        self._active_booking_ids: Dict[Tuple[str, str, str, str], str] = {}
+        self._lock = threading.Lock()
+
+    def get(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a booking by ID."""
+        with self._lock:
+            record = self._data.get(booking_id)
+            return dict(record) if record else None
+
+    def count_active_bookings(self, centre_id: str, slot_date: date, slot_window: str) -> int:
+        """Count active bookings for a specific slot."""
+        with self._lock:
+            return self._active_counts.get(_slot_key(centre_id, slot_date, slot_window), 0)
+
+    def create_if_capacity_available(
+        self, booking_id: str, capacity: int, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Atomically create a booking if capacity is available."""
+        with self._lock:
+            if booking_id in self._data:
+                return None
+            slot_key = _slot_key(data["centre_id"], data["slot_date"], data["slot_window"])
+            active_key = (data["farmer_id"], *slot_key)
+            if active_key in self._active_booking_ids:
+                return None
+            current = self._active_counts.get(slot_key, 0)
+            if current >= capacity:
+                return None
+            record = {"booking_id": booking_id, **data}
+            self._data[booking_id] = record
+            self._active_counts[slot_key] = current + 1
+            self._active_booking_ids[active_key] = booking_id
+            return dict(record)
+
+    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
+        """List all bookings for a farmer."""
+        with self._lock:
+            return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
+
+    def cancel(self, booking_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Cancel a booking and free its slot capacity."""
+        with self._lock:
+            record = self._data.get(booking_id)
+            if record is None or record.get("farmer_id") != farmer_id:
+                return None
+            if record.get("status") != "cancelled":
+                slot_key = _slot_key(
+                    record["centre_id"], record["slot_date"], record["slot_window"]
+                )
+                active_key = (record["farmer_id"], *slot_key)
+                self._active_counts[slot_key] = max(
+                    0, self._active_counts.get(slot_key, 0) - 1
+                )
+                self._active_booking_ids.pop(active_key, None)
+                record["status"] = "cancelled"
+            return dict(record)
+
+
+# Process-wide singletons so the fallback store behaves consistently across
+# requests within a single dev server run.
+_farmer_repo = InMemoryFarmerRepository()
+_crop_repo = InMemoryCropRepository()
+_centre_repo = InMemoryCentreRepository()
+_slot_booking_repo = InMemorySlotBookingRepository()
+
+
+def get_memory_farmer_repository() -> InMemoryFarmerRepository:
+    """Return the process-wide singleton in-memory farmer repository."""
+    return _farmer_repo
+
+
+def get_memory_crop_repository() -> InMemoryCropRepository:
+    """Return the process-wide singleton in-memory crop repository."""
+    return _crop_repo
+
+
+def get_memory_centre_repository() -> InMemoryCentreRepository:
+    """Return the process-wide singleton in-memory centre repository."""
+    return _centre_repo
+
+
+def get_memory_slot_booking_repository() -> InMemorySlotBookingRepository:
+    """Return the process-wide singleton in-memory slot booking repository."""
+    return _slot_booking_repo
