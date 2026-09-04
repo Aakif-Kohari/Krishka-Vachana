@@ -39,17 +39,19 @@ def create_cluster_booking(
     	ClusterBookingOut: Details of the created cluster booking and its individual booking IDs.
 
     Raises:
-        ForbiddenError: If the caller is not a member of the cluster or an authorized delegate.
+        ForbiddenError: If the caller is not authorized to book for every other farmer.
     	NotFoundError: If a farmer or booking centre does not exist.
     	ValidationAppError: If a farmer does not belong to the requested village.
      ConflictError: If the batch conflicts with capacity or an existing booking.
     """
     # 1. Check authorization FIRST to prevent probing farmer existence/villages
-    if (
-        farmer_uid not in cluster_data.farmer_ids
-        and not farmer_repo.is_cluster_delegate_authorized(
-            farmer_uid, cluster_data.farmer_ids
-        )
+    delegated_farmer_ids = [
+        farmer_id
+        for farmer_id in cluster_data.farmer_ids
+        if farmer_id != farmer_uid
+    ]
+    if delegated_farmer_ids and not farmer_repo.is_cluster_delegate_authorized(
+        farmer_uid, delegated_farmer_ids
     ):
         raise ForbiddenError("Not authorized to book for this farmer cluster")
 

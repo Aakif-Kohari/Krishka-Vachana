@@ -288,14 +288,16 @@ class PaymentRepository(ABC):
     @abstractmethod
     def create(self, payment_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Create a payment record with the specified identifier and data.
+        Create a payment unless one already exists for ``data["booking_id"]``.
         
         Parameters:
             payment_id (str): Unique identifier for the payment.
             data (Dict[str, Any]): Payment record fields.
         
         Returns:
-            Dict[str, Any]: The created payment record.
+            Dict[str, Any]: The created payment record, or the existing record for
+            the booking. When an existing record is returned, ``payment_id`` and
+            the remaining fields in ``data`` are ignored.
         """
         ...
 

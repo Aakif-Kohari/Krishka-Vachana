@@ -388,6 +388,31 @@ def test_batch_booking_rejects_mixed_slots_without_writes():
     assert booking_repo.get("booking-2") is None
 
 
+def test_batch_booking_rejects_duplicate_farmer_slot_key_without_writes():
+    """Verify that one batch cannot reserve the same farmer and slot twice."""
+    booking_repo = InMemorySlotBookingRepository()
+    slot_date = date.today() + timedelta(days=1)
+    booking_data = {
+        "farmer_id": "farmer-1",
+        "centre_id": "centre-id",
+        "slot_date": slot_date,
+        "slot_window": "08:00-10:00",
+    }
+
+    result = booking_repo.create_batch_atomic(
+        ["booking-1", "booking-2"],
+        2,
+        [booking_data, dict(booking_data)],
+    )
+
+    assert result is None
+    assert booking_repo.get("booking-1") is None
+    assert booking_repo.get("booking-2") is None
+    assert booking_repo.count_active_bookings(
+        "centre-id", slot_date, "08:00-10:00"
+    ) == 0
+
+
 def test_cancel_frees_capacity_for_a_different_farmer():
     """Verify that cancelling a booking releases capacity for another farmer."""
     centre_repo = _tiny_centre_repo(capacity=1)

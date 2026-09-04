@@ -11,7 +11,11 @@ def test_cluster_booking_success(client: TestClient, auth_headers, farmer_repo, 
     """Verify successful cluster booking for farmers from the same village."""
     # Setup 2 farmers in the same village
     farmer_repo.create("test-farmer-uid-123", {"full_name": "F1", "village": "V1"})
-    farmer_repo.create("f2", {"full_name": "F2", "village": "V1"})
+    farmer_repo.create("f2", {
+        "full_name": "F2",
+        "village": "V1",
+        "authorized_cluster_delegate_ids": ["test-farmer-uid-123"],
+    })
 
     res = client.post(
         "/api/v1/bookings/cluster",
@@ -29,9 +33,13 @@ def test_cluster_booking_success(client: TestClient, auth_headers, farmer_repo, 
 
 def test_cluster_booking_mixed_villages_fails(client: TestClient, auth_headers, farmer_repo):
     """Verify that cluster bookings fail when farmers are from different villages."""
-    # Create the authenticated user so they pass the delegate/member check
+    # Authorize the authenticated farmer to book for f2 so village validation runs.
     farmer_repo.create("test-farmer-uid-123", {"full_name": "F0", "village": "V1"})
-    farmer_repo.create("f2", {"full_name": "F2", "village": "V2"})
+    farmer_repo.create("f2", {
+        "full_name": "F2",
+        "village": "V2",
+        "authorized_cluster_delegate_ids": ["test-farmer-uid-123"],
+    })
 
     res = client.post(
         "/api/v1/bookings/cluster",
@@ -57,7 +65,11 @@ def test_cluster_booking_insufficient_capacity_rolls_back(client: TestClient, au
     # We'll just try to book 41 farmers to force a failure
     fids = ["test-farmer-uid-123", *[f"f{i}" for i in range(40)]]
     for fid in fids:
-        farmer_repo.create(fid, {"full_name": fid, "village": "V1"})
+        farmer_repo.create(fid, {
+            "full_name": fid,
+            "village": "V1",
+            "authorized_cluster_delegate_ids": ["test-farmer-uid-123"],
+        })
 
     res = client.post(
         "/api/v1/bookings/cluster",
@@ -92,6 +104,30 @@ def test_cluster_booking_rejects_non_member_without_delegate_grants(
             "slot_window": "08:00-10:00",
             "village": "V1",
             "farmer_ids": ["f1", "f2"],
+        },
+        headers=auth_headers,
+    )
+
+    assert res.status_code == 403
+
+
+def test_cluster_booking_rejects_member_booking_for_unauthorized_farmer(
+    client: TestClient, auth_headers, farmer_repo
+):
+    """Verify that self-inclusion does not authorize booking for another farmer."""
+    farmer_repo.create(
+        "test-farmer-uid-123", {"full_name": "F1", "village": "V1"}
+    )
+    farmer_repo.create("f2", {"full_name": "F2", "village": "V1"})
+
+    res = client.post(
+        "/api/v1/bookings/cluster",
+        json={
+            "centre_id": "ctr-solapur-apmc",
+            "slot_date": FUTURE_SLOT_DATE,
+            "slot_window": "08:00-10:00",
+            "village": "V1",
+            "farmer_ids": ["test-farmer-uid-123", "f2"],
         },
         headers=auth_headers,
     )

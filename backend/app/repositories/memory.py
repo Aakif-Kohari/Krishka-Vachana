@@ -378,12 +378,17 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
                 return None
 
             created_records = []
+            seen_active_keys = set()
             for bid, data in zip(booking_ids, data_list):
                 if bid in self._data:
                     return None
                 active_key = (data["farmer_id"], *slot_key)
-                if active_key in self._active_booking_ids:
+                if (
+                    active_key in self._active_booking_ids
+                    or active_key in seen_active_keys
+                ):
                     return None
+                seen_active_keys.add(active_key)
             
             # All checks passed, commit
             for bid, data in zip(booking_ids, data_list):
@@ -519,14 +524,14 @@ class InMemoryPaymentRepository(PaymentRepository):
 
     def create(self, payment_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Create and store a payment record.
+        Create and store a payment, or return the existing payment for its booking.
         
         Parameters:
         	payment_id (str): Unique identifier for the payment.
         	data (Dict[str, Any]): Payment fields to include in the record.
         
         Returns:
-        	Dict[str, Any]: A copy of the stored payment record.
+            Dict[str, Any]: A copy of the created or existing payment record.
         """
         return self.create_or_get_by_booking_id(payment_id, data)
 

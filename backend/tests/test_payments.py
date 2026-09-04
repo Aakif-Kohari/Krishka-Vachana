@@ -125,7 +125,9 @@ def test_mock_payment_is_rejected_outside_development(
 ):
     """Verify that mock payment recording is rejected outside development."""
     _create_booking(booking_repo)
-    app.dependency_overrides[get_settings] = lambda: Settings(environment="production")
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        environment="production", payment_gateway_webhook_secret=WEBHOOK_SECRET
+    )
     try:
         res = client.post(
             "/api/v1/payments",

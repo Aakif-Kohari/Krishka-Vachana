@@ -786,14 +786,14 @@ class FirestorePaymentRepository(PaymentRepository):
 
     def create(self, payment_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Create a payment record with the specified identifier and data.
+        Create a payment, or return the existing payment for its booking.
         
         Parameters:
         	payment_id (str): Unique identifier for the payment.
         	data (Dict[str, Any]): Payment fields to store.
         
         Returns:
-        	Dict[str, Any]: The created payment record, including its identifier.
+            Dict[str, Any]: The created or existing payment record, including its identifier.
         """
         return self.create_or_get_by_booking_id(payment_id, data)
 
