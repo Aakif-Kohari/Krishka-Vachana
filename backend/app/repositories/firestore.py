@@ -12,13 +12,19 @@
 """
 import hashlib
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from google.cloud import firestore
 from pydantic import ValidationError
 
-from app.repositories.base import CentreRepository, CropRepository, FarmerRepository, SlotBookingRepository
+from app.repositories.base import (
+    CentreRepository,
+    CropRepository,
+    FarmerRepository,
+    QueueRepository,
+    SlotBookingRepository,
+)
 from app.schemas.centre import CentreOut
 
 logger = logging.getLogger("app.repositories.firestore")
@@ -33,6 +39,16 @@ ACTIVE_SLOT_BOOKINGS_COLLECTION = "active_slot_bookings"
 # atomic counter so capacity checks don't need to scan/count booking docs
 # on every request. Doc id: f"{centre_id}_{slot_date.isoformat()}_{slot_window}".
 SLOT_CAPACITY_COUNTERS_COLLECTION = "slot_capacity_counters"
+QUEUE_ENTRIES_COLLECTION = "queue_entries"
+# One doc per farmer_id / booking_id, used purely as an atomic uniqueness
+# index so a farmer (or a booking) can't have two waiting queue entries at
+# once - same purpose as ACTIVE_SLOT_BOOKINGS_COLLECTION above.
+ACTIVE_FARMER_QUEUE_COLLECTION = "active_farmer_queue_entries"
+ACTIVE_BOOKING_QUEUE_COLLECTION = "active_booking_queue_entries"
+# One doc per (centre_id, date), used as an atomic counter for the daily
+# per-centre token sequence number - same pattern as
+# SLOT_CAPACITY_COUNTERS_COLLECTION above. Doc id: f"{centre_id}_{date}".
+QUEUE_DAILY_COUNTERS_COLLECTION = "queue_daily_counters"
 
 
 class FirestoreFarmerRepository(FarmerRepository):
@@ -354,3 +370,124 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
             return record
 
         return do_cancel(transaction)
+
+
+def _queue_daily_counter_doc_id(centre_id: str, joined_at) -> str:
+    """Generate a document ID for a centre's daily queue token-sequence counter."""
+    return f"{centre_id}_{joined_at.date().isoformat()}"
+
+
+class FirestoreQueueRepository(QueueRepository):
+    """Firestore-backed implementation of QueueRepository.
+
+    TODO (coordinate with Database & Infrastructure engineer): confirm
+    "queue_entries" collection name/schema, and that a composite index
+    exists for the (centre_id ==, status ==, joined_at <) query used by
+    count_waiting_ahead - Firestore requires one for this combination of
+    filters.
+    """
+
+    def __init__(self, client) -> None:
+        self._client = client
+
+    def get(self, queue_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a queue entry by ID from Firestore."""
+        doc = self._client.collection(QUEUE_ENTRIES_COLLECTION).document(queue_id).get()
+        return doc.to_dict() if doc.exists else None
+
+    def get_active_for_farmer(self, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a farmer's current waiting queue entry, if any, from Firestore."""
+        index_doc = self._client.collection(ACTIVE_FARMER_QUEUE_COLLECTION).document(farmer_id).get()
+        if not index_doc.exists:
+            return None
+        return self.get(index_doc.to_dict()["queue_id"])
+
+    def get_active_for_booking(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve the waiting queue entry checked in against a booking, if any."""
+        index_doc = self._client.collection(ACTIVE_BOOKING_QUEUE_COLLECTION).document(booking_id).get()
+        if not index_doc.exists:
+            return None
+        return self.get(index_doc.to_dict()["queue_id"])
+
+    def create_check_in(
+        self, queue_id: str, centre_id: str, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Atomically check a farmer in, assigning the next daily per-centre sequence number."""
+        farmer_id = data["farmer_id"]
+        booking_id = data["booking_id"]
+        entry_ref = self._client.collection(QUEUE_ENTRIES_COLLECTION).document(queue_id)
+        active_farmer_ref = self._client.collection(ACTIVE_FARMER_QUEUE_COLLECTION).document(farmer_id)
+        active_booking_ref = self._client.collection(ACTIVE_BOOKING_QUEUE_COLLECTION).document(booking_id)
+        counter_ref = self._client.collection(QUEUE_DAILY_COUNTERS_COLLECTION).document(
+            _queue_daily_counter_doc_id(centre_id, data["joined_at"])
+        )
+        transaction = self._client.transaction()
+
+        @firestore.transactional
+        def create(transaction) -> Optional[Dict[str, Any]]:
+            if active_farmer_ref.get(transaction=transaction).exists:
+                return None
+            if active_booking_ref.get(transaction=transaction).exists:
+                return None
+
+            counter_doc = counter_ref.get(transaction=transaction)
+            sequence_number = (counter_doc.to_dict().get("count", 0) if counter_doc.exists else 0) + 1
+
+            record = {"queue_id": queue_id, "sequence_number": sequence_number, **data}
+            transaction.set(counter_ref, {"count": sequence_number}, merge=True)
+            transaction.create(active_farmer_ref, {"queue_id": queue_id, "farmer_id": farmer_id})
+            transaction.create(active_booking_ref, {"queue_id": queue_id, "booking_id": booking_id})
+            transaction.create(entry_ref, record)
+            return record
+
+        return create(transaction)
+
+    def count_waiting_ahead(self, centre_id: str, joined_at: datetime) -> int:
+        """Count waiting entries at a centre that joined strictly before joined_at."""
+        query = (
+            self._client.collection(QUEUE_ENTRIES_COLLECTION)
+            .where("centre_id", "==", centre_id)
+            .where("status", "==", "waiting")
+            .where("joined_at", "<", joined_at)
+        )
+        return sum(1 for _ in query.stream())
+
+    def count_waiting(self, centre_id: str) -> int:
+        """Count all waiting entries at a centre."""
+        query = (
+            self._client.collection(QUEUE_ENTRIES_COLLECTION)
+            .where("centre_id", "==", centre_id)
+            .where("status", "==", "waiting")
+        )
+        return sum(1 for _ in query.stream())
+
+    def resolve(
+        self, queue_id: str, farmer_id: str, new_status: str, resolved_at: datetime
+    ) -> Optional[Dict[str, Any]]:
+        """Move a farmer's own waiting entry to a terminal status and free its reservations."""
+        entry_ref = self._client.collection(QUEUE_ENTRIES_COLLECTION).document(queue_id)
+        transaction = self._client.transaction()
+
+        @firestore.transactional
+        def do_resolve(transaction) -> Optional[Dict[str, Any]]:
+            snapshot = entry_ref.get(transaction=transaction)
+            if not snapshot.exists:
+                return None
+            record = snapshot.to_dict()
+            if record.get("farmer_id") != farmer_id or record.get("status") != "waiting":
+                return None
+
+            active_farmer_ref = self._client.collection(ACTIVE_FARMER_QUEUE_COLLECTION).document(
+                farmer_id
+            )
+            active_booking_ref = self._client.collection(ACTIVE_BOOKING_QUEUE_COLLECTION).document(
+                record["booking_id"]
+            )
+            transaction.delete(active_farmer_ref)
+            transaction.delete(active_booking_ref)
+            transaction.update(entry_ref, {"status": new_status, "resolved_at": resolved_at})
+            record["status"] = new_status
+            record["resolved_at"] = resolved_at
+            return record
+
+        return do_resolve(transaction)
