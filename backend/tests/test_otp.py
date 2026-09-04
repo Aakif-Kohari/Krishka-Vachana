@@ -7,6 +7,7 @@ delivery logs intentionally redact both the destination and code.
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Event
 
 import pytest
 from pydantic import ValidationError
@@ -49,12 +50,30 @@ def test_request_otp_requires_registration(client, auth_headers):
 
 
 def test_request_otp_success(client, auth_headers, monkeypatch, caplog):
-    """Test successful OTP request and verify sensitive data is not logged."""
+    """Test OTP requests return before delivery and do not log sensitive data."""
     _register_farmer(client, auth_headers)
     code = "123456"
+    started = Event()
+    release = Event()
+
+    def slow_delivery(*_args):
+        started.set()
+        release.wait(timeout=2)
+        return True
+
     monkeypatch.setattr(otp_service.secrets, "randbelow", lambda _upper_bound: int(code))
-    with caplog.at_level(logging.INFO):
-        r = client.post("/api/v1/farmers/me/phone/otp/request", headers=auth_headers)
+    monkeypatch.setattr(otp_service, "send_sms", slow_delivery)
+    try:
+        with caplog.at_level(logging.INFO), ThreadPoolExecutor(max_workers=1) as caller:
+            pending = caller.submit(
+                client.post,
+                "/api/v1/farmers/me/phone/otp/request",
+                headers=auth_headers,
+            )
+            assert started.wait(timeout=1)
+            r = pending.result(timeout=0.5)
+    finally:
+        release.set()
 
     assert r.status_code == 200
     assert r.json() == {"message": "Verification code sent", "expires_in_seconds": 600}
@@ -66,10 +85,17 @@ def test_request_otp_rejects_requests_during_cooldown(client, auth_headers, monk
     """Test that repeated requests cannot trigger another SMS during cooldown."""
     _register_farmer(client, auth_headers)
     sent_messages = []
+    delivered = Event()
+
+    def record_message(_settings, _phone_number, message):
+        sent_messages.append(message)
+        delivered.set()
+        return True
+
     monkeypatch.setattr(
         otp_service,
         "send_sms",
-        lambda _settings, _phone_number, message: sent_messages.append(message) or True,
+        record_message,
     )
 
     first = client.post("/api/v1/farmers/me/phone/otp/request", headers=auth_headers)
@@ -77,6 +103,7 @@ def test_request_otp_rejects_requests_during_cooldown(client, auth_headers, monk
 
     assert first.status_code == 200
     assert second.status_code == 409
+    assert delivered.wait(timeout=1)
     assert len(sent_messages) == 1
 
 
@@ -85,12 +112,22 @@ def test_request_otp_allows_request_after_cooldown(farmer_repo, monkeypatch):
     farmer_repo.create("farmer-id", {"phone_number": "9876543210"})
     issued_at = datetime(2026, 9, 4, 8, tzinfo=timezone.utc)
     request_times = iter([issued_at, issued_at + timedelta(seconds=60)])
+    deliveries = []
+    both_delivered = Event()
+
+    def record_delivery(*_args):
+        deliveries.append(True)
+        if len(deliveries) == 2:
+            both_delivered.set()
+        return True
+
     monkeypatch.setattr(otp_service, "utcnow", lambda: next(request_times))
-    monkeypatch.setattr(otp_service, "send_sms", lambda *_args: True)
+    monkeypatch.setattr(otp_service, "send_sms", record_delivery)
 
     otp_service.request_otp(Settings(), farmer_repo, "farmer-id")
     otp_service.request_otp(Settings(), farmer_repo, "farmer-id")
 
+    assert both_delivered.wait(timeout=1)
     assert farmer_repo.get("farmer-id")["phone_otp_issued_at"] == issued_at + timedelta(seconds=60)
 
 
@@ -205,16 +242,24 @@ def test_request_otp_formats_expiration_lifetime(
     """Test that OTP expiration messages are properly formatted for different TTL values."""
     farmer_repo.create("farmer-id", {"phone_number": "9876543210"})
     sent_messages = []
+    delivered = Event()
+
+    def record_message(_settings, _phone_number, message):
+        sent_messages.append(message)
+        delivered.set()
+        return True
+
     monkeypatch.setattr(
         otp_service,
         "send_sms",
-        lambda _settings, _phone_number, message: sent_messages.append(message) or True,
+        record_message,
     )
 
     otp_service.request_otp(
         Settings(otp_ttl_seconds=ttl_seconds), farmer_repo, "farmer-id"
     )
 
+    assert delivered.wait(timeout=1)
     assert sent_messages[0].endswith(f"It expires in {expected_lifetime}.")
 
 

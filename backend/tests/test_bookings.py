@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
+from threading import Event
 
 import pytest
 
@@ -57,13 +58,33 @@ def test_book_slot_requires_farmer_profile_first(client, auth_headers, seeded_ce
     assert response.status_code == 404
 
 
-def test_book_slot_success(client, auth_headers, seeded_centre_id):
+def test_book_slot_success(client, auth_headers, seeded_centre_id, monkeypatch):
     _register_farmer(client, auth_headers)
-    response = client.post(
-        "/api/v1/bookings",
-        json={"centre_id": seeded_centre_id, "slot_date": TOMORROW, "slot_window": "08:00-10:00"},
-        headers=auth_headers,
-    )
+    started = Event()
+    release = Event()
+
+    def slow_notification(*_args):
+        started.set()
+        release.wait(timeout=2)
+
+    monkeypatch.setattr(slot_service, "_notify_booking_confirmed", slow_notification)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as caller:
+            pending = caller.submit(
+                client.post,
+                "/api/v1/bookings",
+                json={
+                    "centre_id": seeded_centre_id,
+                    "slot_date": TOMORROW,
+                    "slot_window": "08:00-10:00",
+                },
+                headers=auth_headers,
+            )
+            assert started.wait(timeout=1)
+            response = pending.result(timeout=0.5)
+    finally:
+        release.set()
+
     assert response.status_code == 201
     body = response.json()
     assert body["status"] == "booked"

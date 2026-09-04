@@ -17,6 +17,7 @@ from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.core.sms import send_sms
 from app.repositories.base import FarmerRepository, OtpVerificationResult
 from app.schemas.otp import OtpRequestOut, OtpVerifyOut
+from app.services.queue_service import dispatch_notification
 
 logger = logging.getLogger("app.otp")
 
@@ -40,6 +41,12 @@ def _format_expiration(ttl_seconds: int) -> str:
     minutes = (ttl_seconds + 59) // 60
     unit = "minute" if minutes == 1 else "minutes"
     return f"{minutes} {unit}"
+
+
+def _deliver_otp(settings: Settings, phone_number: str, message: str) -> None:
+    """Send an OTP from a worker and retain unsuccessful-delivery logging."""
+    if not send_sms(settings, phone_number, message):
+        logger.info("OTP delivery was not completed")
 
 
 def request_otp(settings: Settings, farmer_repo: FarmerRepository, farmer_id: str) -> OtpRequestOut:
@@ -67,14 +74,14 @@ def request_otp(settings: Settings, farmer_repo: FarmerRepository, farmer_id: st
     if not issued:
         raise ConflictError("Please wait before requesting another verification code")
 
-    sent = send_sms(
-        settings,
-        phone_number,
+    message = (
         f"KisanSetu: your verification code is {code}. "
-        f"It expires in {_format_expiration(settings.otp_ttl_seconds)}.",
+        f"It expires in {_format_expiration(settings.otp_ttl_seconds)}."
     )
-    if not sent:
-        logger.info("OTP delivery was not completed")
+    dispatch_notification(
+        lambda: _deliver_otp(settings, phone_number, message),
+        "OTP delivery",
+    )
 
     return OtpRequestOut(message="Verification code sent", expires_in_seconds=settings.otp_ttl_seconds)
 

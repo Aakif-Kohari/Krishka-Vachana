@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date as date_type
 from datetime import datetime
 from threading import BoundedSemaphore
+from typing import Callable
 
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError, NotFoundError
@@ -16,6 +17,28 @@ from app.services.slot_service import PROCUREMENT_CENTRE_TIMEZONE
 logger = logging.getLogger("app.queue")
 _notification_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="queue-sms")
 _notification_slots = BoundedSemaphore(16)
+
+
+def dispatch_notification(notification: Callable[[], None], description: str) -> None:
+    """Submit a best-effort notification to the bounded worker pool."""
+    if not _notification_slots.acquire(blocking=False):
+        logger.warning("%s skipped: worker queue is full", description)
+        return
+
+    def notify_and_release() -> None:
+        """Run the notification and always release its worker-queue slot."""
+        try:
+            notification()
+        except Exception:  # pragma: no cover - notification callbacks are best-effort
+            logger.exception("%s failed", description)
+        finally:
+            _notification_slots.release()
+
+    try:
+        _notification_executor.submit(notify_and_release)
+    except RuntimeError:  # pragma: no cover - only during interpreter shutdown
+        _notification_slots.release()
+        logger.warning("%s worker is unavailable", description)
 
 
 def _to_out(repo: QueueRepository, record: dict) -> QueueEntryOut:
@@ -63,22 +86,10 @@ def _notify_check_in(farmer_repo: FarmerRepository, record: dict) -> None:
 def _dispatch_check_in_notification(farmer_repo: FarmerRepository, record: dict) -> None:
     """Dispatch check-in SMS notification to background worker pool without blocking."""
     """Submit best-effort SMS delivery to the bounded process worker pool."""
-    if not _notification_slots.acquire(blocking=False):
-        logger.warning("Check-in SMS skipped: worker queue is full")
-        return
-
-    def notify_and_release() -> None:
-        """Wrapper to send notification and always release semaphore slot."""
-        try:
-            _notify_check_in(farmer_repo, record)
-        finally:
-            _notification_slots.release()
-
-    try:
-        _notification_executor.submit(notify_and_release)
-    except RuntimeError:  # pragma: no cover - only during interpreter shutdown
-        _notification_slots.release()
-        logger.warning("Check-in SMS worker is unavailable")
+    dispatch_notification(
+        lambda: _notify_check_in(farmer_repo, record),
+        "Check-in SMS",
+    )
 
 
 def check_in(

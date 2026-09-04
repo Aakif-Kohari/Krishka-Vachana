@@ -92,7 +92,14 @@ def book_slot(
         raise ConflictError(
             "This slot is full or you already have an active booking for it"
         )
-    _notify_booking_confirmed(farmer_repo, record)
+    # Imported lazily to avoid queue_service's module-level timezone import
+    # creating a cycle while these service modules are initialized.
+    from app.services.queue_service import dispatch_notification
+
+    dispatch_notification(
+        lambda: _notify_booking_confirmed(farmer_repo, record),
+        "Booking-confirmation SMS",
+    )
     return SlotBookingOut.model_validate(record)
 
 
