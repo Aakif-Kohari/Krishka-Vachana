@@ -19,6 +19,7 @@ from app.repositories.base import (
     CentreRepository,
     CropRepository,
     FarmerRepository,
+    PaymentRepository,
     QueueRepository,
     SlotBookingRepository,
 )
@@ -26,9 +27,12 @@ from app.repositories.memory import (
     get_memory_centre_repository,
     get_memory_crop_repository,
     get_memory_farmer_repository,
+    get_memory_payment_repository,
     get_memory_queue_repository,
     get_memory_slot_booking_repository,
 )
+from app.repositories.base import PaymentRepository
+from app.repositories.memory import get_memory_payment_repository
 
 
 def get_current_farmer_uid(
@@ -137,3 +141,18 @@ def get_queue_repository(
     from app.repositories.firestore import FirestoreQueueRepository
 
     return FirestoreQueueRepository(client)
+
+def get_payment_repository(
+    firebase: FirebaseState = Depends(get_firebase_state),
+    settings: Settings = Depends(get_settings),
+) -> PaymentRepository:
+    """Return a payment repository (Firestore-backed or in-memory fallback)."""
+    client = firebase.firestore_client()
+    if client is None:
+        if settings.is_development:
+            return get_memory_payment_repository()
+        raise ServiceUnavailableError("Firestore is unavailable")
+    from app.repositories.firestore import FirestorePaymentRepository
+
+    return FirestorePaymentRepository(client)
+
