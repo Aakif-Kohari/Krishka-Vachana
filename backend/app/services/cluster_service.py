@@ -42,7 +42,7 @@ def create_cluster_booking(
         ForbiddenError: If the caller is not a member of the cluster or an authorized delegate.
     	NotFoundError: If a farmer or booking centre does not exist.
     	ValidationAppError: If a farmer does not belong to the requested village.
-    	ConflictError: If capacity is insufficient for the entire group.
+     ConflictError: If the batch conflicts with capacity or an existing booking.
     """
     # 1. Check authorization FIRST to prevent probing farmer existence/villages
     if (
@@ -96,7 +96,7 @@ def create_cluster_booking(
     )
 
     if created_bookings is None:
-        raise ConflictError("Insufficient capacity for the entire village cluster")
+        raise ConflictError("Village cluster booking conflicts with existing reservations or capacity")
 
     # NOTE: cluster_id is ephemeral and not persisted as a distinct document.
     # In a production system, this would be backed by a dedicated ClusterBooking record.

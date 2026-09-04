@@ -198,6 +198,7 @@ health/docs/status pages.
 
 ```bash
 docker build -t kisansetu-backend .
+test -n "${PAYMENT_GATEWAY_WEBHOOK_SECRET:-}" || { echo "PAYMENT_GATEWAY_WEBHOOK_SECRET must be set" >&2; exit 1; }
 docker run -p 8000:8000 \
   -e ENVIRONMENT=production \
   -e ENABLE_DOCS=false \

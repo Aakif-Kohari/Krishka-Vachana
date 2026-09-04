@@ -275,7 +275,7 @@ class FirestoreCropRepository(CropRepository):
         """List a stable, optionally bounded page of a farmer's crops."""
         query = (
             self._client.collection(CROPS_COLLECTION)
-            .where("farmer_id", "==", farmer_id)
+            .where(filter=FieldFilter("farmer_id", "==", farmer_id))
             .order_by("crop_id")
         )
         if cursor is not None:
@@ -453,7 +453,7 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
         """List a stable, optionally bounded page of a farmer's bookings."""
         query = (
             self._client.collection(SLOT_BOOKINGS_COLLECTION)
-            .where("farmer_id", "==", farmer_id)
+            .where(filter=FieldFilter("farmer_id", "==", farmer_id))
             .order_by("booking_id")
         )
         if cursor is not None:
@@ -529,6 +529,16 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
             return None
 
         first_data = data_list[0]
+        first_slot = (
+            first_data["centre_id"],
+            first_data["slot_date"],
+            first_data["slot_window"],
+        )
+        if any(
+            (data["centre_id"], data["slot_date"], data["slot_window"]) != first_slot
+            for data in data_list[1:]
+        ):
+            return None
         slot_date_iso = first_data["slot_date"] if isinstance(first_data["slot_date"], str) else first_data["slot_date"].isoformat()
         
         counter_ref = self._client.collection(SLOT_CAPACITY_COUNTERS_COLLECTION).document(
@@ -559,11 +569,11 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
             if current + len(booking_ids) > capacity:
                 return None
 
-            for bref, aref in zip(booking_refs, active_refs):
-                if bref.get(transaction=transaction).exists:
-                    return None
-                if aref.get(transaction=transaction).exists:
-                    return None
+            booking_snapshots = self._client.get_all(
+                booking_refs + active_refs, transaction=transaction
+            )
+            if any(snapshot.exists for snapshot in booking_snapshots):
+                return None
 
             transaction.set(counter_ref, {"count": current + len(booking_ids)}, merge=True)
             
@@ -845,7 +855,7 @@ class FirestorePaymentRepository(PaymentRepository):
         # for stable, lexicographical cursor-based pagination.
         query = (
             self._client.collection(PAYMENTS_COLLECTION)
-            .where("farmer_id", "==", farmer_id)
+            .where(filter=FieldFilter("farmer_id", "==", farmer_id))
             .order_by("payment_id")
         )
         if cursor is not None:

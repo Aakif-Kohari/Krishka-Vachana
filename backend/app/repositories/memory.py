@@ -360,6 +360,17 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
                 return None
                 
             first_data = data_list[0]
+            first_slot = (
+                first_data["centre_id"],
+                first_data["slot_date"],
+                first_data["slot_window"],
+            )
+            if any(
+                (data["centre_id"], data["slot_date"], data["slot_window"])
+                != first_slot
+                for data in data_list[1:]
+            ):
+                return None
             slot_key = _slot_key(first_data["centre_id"], first_data["slot_date"], first_data["slot_window"])
             current = self._active_counts.get(slot_key, 0)
             

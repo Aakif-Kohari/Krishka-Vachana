@@ -1,8 +1,10 @@
 """Tests for the village cluster booking system."""
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+
+FUTURE_SLOT_DATE = (date.today() + timedelta(days=30)).isoformat()
 
 
 def test_cluster_booking_success(client: TestClient, auth_headers, farmer_repo, centre_repo, booking_repo):
@@ -15,7 +17,7 @@ def test_cluster_booking_success(client: TestClient, auth_headers, farmer_repo, 
         "/api/v1/bookings/cluster",
         json={
             "centre_id": "ctr-solapur-apmc",
-            "slot_date": "2026-10-01",
+            "slot_date": FUTURE_SLOT_DATE,
             "slot_window": "08:00-10:00",
             "village": "V1",
             "farmer_ids": ["test-farmer-uid-123", "f2"]
@@ -35,7 +37,7 @@ def test_cluster_booking_mixed_villages_fails(client: TestClient, auth_headers, 
         "/api/v1/bookings/cluster",
         json={
             "centre_id": "ctr-solapur-apmc",
-            "slot_date": "2026-10-01",
+            "slot_date": FUTURE_SLOT_DATE,
             "slot_window": "08:00-10:00",
             "village": "V1",
             "farmer_ids": ["test-farmer-uid-123", "f2"] # Include authenticated user
@@ -61,7 +63,7 @@ def test_cluster_booking_insufficient_capacity_rolls_back(client: TestClient, au
         "/api/v1/bookings/cluster",
         json={
             "centre_id": "ctr-solapur-apmc",
-            "slot_date": "2026-10-01",
+            "slot_date": FUTURE_SLOT_DATE,
             "slot_window": "08:00-10:00",
             "village": "V1",
             "farmer_ids": fids
@@ -70,7 +72,9 @@ def test_cluster_booking_insufficient_capacity_rolls_back(client: TestClient, au
     )
     assert res.status_code == 409 # Conflict
     # Verify no partial bookings were created
-    assert booking_repo.count_active_bookings("ctr-solapur-apmc", date(2026, 10, 1), "08:00-10:00") == 0
+    assert booking_repo.count_active_bookings(
+        "ctr-solapur-apmc", date.fromisoformat(FUTURE_SLOT_DATE), "08:00-10:00"
+    ) == 0
 
 
 def test_cluster_booking_rejects_non_member_without_delegate_grants(
@@ -84,7 +88,7 @@ def test_cluster_booking_rejects_non_member_without_delegate_grants(
         "/api/v1/bookings/cluster",
         json={
             "centre_id": "ctr-solapur-apmc",
-            "slot_date": "2026-10-01",
+            "slot_date": FUTURE_SLOT_DATE,
             "slot_window": "08:00-10:00",
             "village": "V1",
             "farmer_ids": ["f1", "f2"],
@@ -107,7 +111,7 @@ def test_cluster_booking_allows_repository_backed_delegate(
         "/api/v1/bookings/cluster",
         json={
             "centre_id": "ctr-solapur-apmc",
-            "slot_date": "2026-10-01",
+            "slot_date": FUTURE_SLOT_DATE,
             "slot_window": "08:00-10:00",
             "village": "V1",
             "farmer_ids": ["f1", "f2"],
@@ -126,7 +130,7 @@ def test_cluster_booking_rejects_duplicate_farmer_ids(
         "/api/v1/bookings/cluster",
         json={
             "centre_id": "ctr-solapur-apmc",
-            "slot_date": "2026-10-01",
+            "slot_date": FUTURE_SLOT_DATE,
             "slot_window": "08:00-10:00",
             "village": "V1",
             "farmer_ids": ["test-farmer-uid-123", "test-farmer-uid-123"],
@@ -150,7 +154,7 @@ def test_cluster_booking_strips_claimed_village(
         "/api/v1/bookings/cluster",
         json={
             "centre_id": "ctr-solapur-apmc",
-            "slot_date": "2026-10-01",
+            "slot_date": FUTURE_SLOT_DATE,
             "slot_window": "08:00-10:00",
             "village": "  V1  ",
             "farmer_ids": ["test-farmer-uid-123"],
@@ -168,7 +172,7 @@ def test_cluster_booking_rejects_whitespace_only_village(client: TestClient, aut
         "/api/v1/bookings/cluster",
         json={
             "centre_id": "ctr-solapur-apmc",
-            "slot_date": "2026-10-01",
+            "slot_date": FUTURE_SLOT_DATE,
             "slot_window": "08:00-10:00",
             "village": "   ",
             "farmer_ids": ["test-farmer-uid-123"],

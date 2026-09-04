@@ -72,7 +72,10 @@ def test_history_repositories_apply_cursor_and_limit(
 
     assert records == [{cursor_field: "next"}]
     client.collection.assert_called_once_with(collection_name)
-    collection.where.assert_called_once_with("farmer_id", "==", "farmer-id")
+    filter_arg = collection.where.call_args.kwargs["filter"]
+    assert filter_arg.field_path == "farmer_id"
+    assert filter_arg.op_string == "=="
+    assert filter_arg.value == "farmer-id"
     filtered_query.order_by.assert_called_once_with(cursor_field)
     ordered_query.start_after.assert_called_once_with({cursor_field: "current"})
     cursor_query.limit.assert_called_once_with(3)
@@ -268,10 +271,11 @@ def test_firestore_batch_booking_serializes_date(monkeypatch):
     collections[SLOT_CAPACITY_COUNTERS_COLLECTION].document.return_value.get.return_value = (
         _snapshot(exists=False)
     )
-    booking_ref.get.return_value = _snapshot(exists=False)
-    collections[ACTIVE_SLOT_BOOKINGS_COLLECTION].document.return_value.get.return_value = (
-        _snapshot(exists=False)
-    )
+    active_ref = collections[ACTIVE_SLOT_BOOKINGS_COLLECTION].document.return_value
+    client.get_all.return_value = [
+        _snapshot(exists=False),
+        _snapshot(exists=False),
+    ]
 
     result = FirestoreSlotBookingRepository(client).create_batch_atomic(
         ["booking-id"],
@@ -294,6 +298,38 @@ def test_firestore_batch_booking_serializes_date(monkeypatch):
         if ref is booking_ref
     )
     assert booking_write["slot_date"] == "2026-09-03"
+    client.get_all.assert_called_once_with(
+        [booking_ref, active_ref], transaction=transaction
+    )
+    booking_ref.get.assert_not_called()
+    active_ref.get.assert_not_called()
+
+
+def test_firestore_batch_booking_rejects_mixed_slots_before_creating_references():
+    """Verify that one batch cannot reserve bookings across multiple slots."""
+    client = MagicMock()
+
+    result = FirestoreSlotBookingRepository(client).create_batch_atomic(
+        ["booking-1", "booking-2"],
+        2,
+        [
+            {
+                "farmer_id": "farmer-1",
+                "centre_id": "centre-id",
+                "slot_date": date(2026, 9, 3),
+                "slot_window": "08:00-10:00",
+            },
+            {
+                "farmer_id": "farmer-2",
+                "centre_id": "centre-id",
+                "slot_date": date(2026, 9, 3),
+                "slot_window": "10:00-12:00",
+            },
+        ],
+    )
+
+    assert result is None
+    client.collection.assert_not_called()
 
 
 def test_firestore_phone_otp_attempt_is_consumed_in_transaction(monkeypatch):

@@ -5,7 +5,9 @@ Does NOT define Firestore schema or security rules - those belong to the
 Database & Infrastructure engineer. This module only reads the values the
 backend needs to talk to services that already exist.
 """
+from collections import Counter
 from functools import lru_cache
+from math import log2
 from typing import List, Optional
 
 from pydantic import Field, model_validator
@@ -13,6 +15,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 _MIN_WEBHOOK_SECRET_LENGTH = 32
+_MIN_WEBHOOK_SECRET_ENTROPY_BITS = 100
+_WEBHOOK_SECRET_PLACEHOLDER_MARKERS = (
+    "change-me",
+    "changeme",
+    "placeholder",
+    "replace-with",
+    "test-only",
+    "your-secret",
+)
 
 
 class Settings(BaseSettings):
@@ -73,7 +84,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def require_secure_production_webhook_secret(self):
-        """Require a trimmed, minimum-length webhook secret in production."""
+        """Require a securely generated webhook secret in production."""
         if self.environment.strip().lower() != "production":
             return self
 
@@ -84,6 +95,17 @@ class Settings(BaseSettings):
             raise ValueError(
                 "payment gateway webhook secret must be at least "
                 f"{_MIN_WEBHOOK_SECRET_LENGTH} characters in production"
+            )
+        estimated_entropy_bits = -sum(
+            count * log2(count / len(secret)) for count in Counter(secret).values()
+        )
+        if (
+            any(marker in secret.lower() for marker in _WEBHOOK_SECRET_PLACEHOLDER_MARKERS)
+            or estimated_entropy_bits < _MIN_WEBHOOK_SECRET_ENTROPY_BITS
+        ):
+            raise ValueError(
+                "payment gateway webhook secret must be cryptographically generated "
+                "and non-placeholder in production"
             )
         return self
 

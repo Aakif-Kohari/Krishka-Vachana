@@ -66,7 +66,11 @@ def record_payment(
     }
 
     created = payment_repo.create_or_get_by_booking_id(payment_id, record)
-    logger.info("Recorded payment %s for booking %s", payment_id, payment_data.booking_id)
+    logger.info(
+        "Recorded payment %s for booking %s",
+        created["payment_id"],
+        payment_data.booking_id,
+    )
     return PaymentOut.model_validate(created)
 
 
