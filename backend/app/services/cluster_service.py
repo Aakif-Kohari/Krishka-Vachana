@@ -13,6 +13,7 @@ from typing import List
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationAppError
 from app.repositories.base import CentreRepository, FarmerRepository, SlotBookingRepository
 from app.schemas.cluster import ClusterBookingCreate, ClusterBookingOut
+from app.services.slot_service import PROCUREMENT_CENTRE_TIMEZONE
 
 logger = logging.getLogger("app.services.cluster_service")
 
@@ -64,6 +65,9 @@ def create_cluster_booking(
     centre = centre_repo.get(cluster_data.centre_id)
     if not centre:
         raise NotFoundError(f"Centre {cluster_data.centre_id} not found")
+
+    if cluster_data.slot_date < datetime.now(PROCUREMENT_CENTRE_TIMEZONE).date():
+        raise ValidationAppError("slot_date cannot be in the past")
     
     capacity = centre.get("capacity_per_slot", 0)
 

@@ -1,4 +1,6 @@
 """Tests for the village cluster booking system."""
+from datetime import date
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -68,7 +70,7 @@ def test_cluster_booking_insufficient_capacity_rolls_back(client: TestClient, au
     )
     assert res.status_code == 409 # Conflict
     # Verify no partial bookings were created
-    assert booking_repo.count_active_bookings("ctr-solapur-apmc", "2026-10-01", "08:00-10:00") == 0
+    assert booking_repo.count_active_bookings("ctr-solapur-apmc", date(2026, 10, 1), "08:00-10:00") == 0
 
 
 def test_cluster_booking_rejects_non_member_without_delegate_grants(

@@ -766,7 +766,11 @@ class FirestorePaymentRepository(PaymentRepository):
         Returns:
         	Optional[Dict[str, Any]]: The payment record, or `None` if no payment is found.
         """
-        query = self._client.collection(PAYMENTS_COLLECTION).where("booking_id", "==", booking_id).limit(1)
+        query = (
+            self._client.collection(PAYMENTS_COLLECTION)
+            .where(filter=FieldFilter("booking_id", "==", booking_id))
+            .limit(1)
+        )
         doc = next(iter(query.stream()), None)
         return doc.to_dict() if doc is not None else None
 
@@ -794,7 +798,9 @@ class FirestorePaymentRepository(PaymentRepository):
             PAYMENT_BOOKING_RESERVATIONS_COLLECTION
         ).document(reservation_id)
         payment_ref = payment_collection.document(payment_id)
-        existing_query = payment_collection.where("booking_id", "==", booking_id).limit(1)
+        existing_query = payment_collection.where(
+            filter=FieldFilter("booking_id", "==", booking_id)
+        ).limit(1)
         transaction = self._client.transaction()
 
         @firestore.transactional
