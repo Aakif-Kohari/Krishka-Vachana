@@ -5,16 +5,24 @@ app/api/deps.py), and directly in tests. Not for production use - data is
 lost on process restart and there is no cross-process consistency.
 """
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.repositories.base import CentreRepository, CropRepository, FarmerRepository, SlotBookingRepository
+from app.repositories.base import (
+    CentreRepository,
+    CropRepository,
+    FarmerRepository,
+    OtpVerificationResult,
+    QueueRepository,
+    SlotBookingRepository,
+)
 
 
 class InMemoryFarmerRepository(FarmerRepository):
     """In-memory implementation of FarmerRepository for development and testing."""
 
     def __init__(self) -> None:
+        """Initialize an empty in-memory farmer repository with thread-safe locking."""
         self._data: Dict[str, Dict[str, Any]] = {}
         self._aadhaar_reservations: Dict[str, str] = {}
         self._lock = threading.Lock()
@@ -81,11 +89,70 @@ class InMemoryFarmerRepository(FarmerRepository):
             record.update(data)
             return dict(record)
 
+    def issue_phone_otp_challenge(
+        self,
+        farmer_id: str,
+        issued_at: datetime,
+        cooldown_seconds: int,
+        data: Dict[str, Any],
+    ) -> bool:
+        """Atomically store an OTP challenge unless the farmer is in cooldown."""
+        with self._lock:
+            record = self._data.get(farmer_id)
+            if record is None:
+                return False
+            last_issued_at = record.get("phone_otp_issued_at")
+            if last_issued_at and issued_at < last_issued_at + timedelta(seconds=cooldown_seconds):
+                return False
+            record.update({**data, "phone_otp_issued_at": issued_at})
+            return True
+
+    def consume_phone_otp_attempt(
+        self,
+        farmer_id: str,
+        submitted_hash: str,
+        attempted_at: datetime,
+        max_attempts: int,
+    ) -> OtpVerificationResult:
+        """Atomically verify or consume one phone OTP attempt."""
+        with self._lock:
+            record = self._data.get(farmer_id)
+            if record is None:
+                return OtpVerificationResult.NOT_FOUND
+
+            stored_hash = record.get("phone_otp_hash")
+            expires_at = record.get("phone_otp_expires_at")
+            if not stored_hash or not expires_at:
+                return OtpVerificationResult.MISSING
+
+            clear_challenge = {
+                "phone_otp_hash": None,
+                "phone_otp_expires_at": None,
+                "phone_otp_attempts": 0,
+            }
+            if attempted_at > expires_at:
+                record.update(clear_challenge)
+                return OtpVerificationResult.EXPIRED
+
+            attempts = record.get("phone_otp_attempts", 0)
+            if attempts >= max_attempts:
+                record.update(clear_challenge)
+                return OtpVerificationResult.LOCKED
+
+            if submitted_hash != stored_hash:
+                record["phone_otp_attempts"] = attempts + 1
+                return OtpVerificationResult.INCORRECT
+
+            record["phone_verified"] = True
+            record.update(clear_challenge)
+            return OtpVerificationResult.VERIFIED
+
 
 class InMemoryCropRepository(CropRepository):
     """In-memory implementation of CropRepository for development and testing."""
 
     def __init__(self) -> None:
+        """Initialize an empty in-memory crop repository with thread-safe locking."""
         self._data: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
 
@@ -140,6 +207,7 @@ class InMemoryCentreRepository(CentreRepository):
     """In-memory implementation of CentreRepository for development and testing."""
 
     def __init__(self, seed: Optional[List[Dict[str, Any]]] = None) -> None:
+        """Initialize in-memory centre repository with optional seed data or default sample centres."""
         self._lock = threading.Lock()
         self._data: Dict[str, Dict[str, Any]] = {
             record["centre_id"]: dict(record) for record in (seed if seed is not None else _DEFAULT_SEED_CENTRES)
@@ -163,7 +231,7 @@ class InMemoryCentreRepository(CentreRepository):
 
 
 def _slot_key(centre_id: str, slot_date: date, slot_window: str) -> Tuple[str, str, str]:
-    """Generate a composite key for a slot (centre, date, window)."""
+    """Generate a composite tuple key for a slot from centre, date, and window."""
     slot_date_iso = slot_date.isoformat() if hasattr(slot_date, "isoformat") else str(slot_date)
     return (centre_id, slot_date_iso, slot_window)
 
@@ -172,6 +240,7 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
     """In-memory implementation of SlotBookingRepository for development and testing."""
 
     def __init__(self) -> None:
+        """Initialize an empty in-memory slot booking repository with thread-safe locking."""
         self._data: Dict[str, Dict[str, Any]] = {}
         self._active_counts: Dict[Tuple[str, str, str], int] = {}
         self._active_booking_ids: Dict[Tuple[str, str, str, str], str] = {}
@@ -232,12 +301,112 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
             return dict(record)
 
 
+class InMemoryQueueRepository(QueueRepository):
+    """In-memory implementation of QueueRepository for development and testing."""
+
+    def __init__(self) -> None:
+        """Initialize an empty in-memory queue repository with thread-safe locking."""
+        self._data: Dict[str, Dict[str, Any]] = {}
+        self._active_farmer_ids: Dict[str, str] = {}  # farmer_id -> queue_id
+        self._active_booking_ids: Dict[str, str] = {}  # booking_id -> queue_id
+        self._daily_sequence: Dict[Tuple[str, str], int] = {}  # (centre_id, date_iso) -> count
+        self._lock = threading.Lock()
+
+    def get(self, queue_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a queue entry by ID."""
+        with self._lock:
+            record = self._data.get(queue_id)
+            return dict(record) if record else None
+
+    def get_active_for_farmer(self, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a farmer's current waiting queue entry, if any."""
+        with self._lock:
+            queue_id = self._active_farmer_ids.get(farmer_id)
+            record = self._data.get(queue_id) if queue_id else None
+            return dict(record) if record else None
+
+    def get_active_for_booking(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve the waiting queue entry checked in against a booking, if any."""
+        with self._lock:
+            queue_id = self._active_booking_ids.get(booking_id)
+            record = self._data.get(queue_id) if queue_id else None
+            return dict(record) if record else None
+
+    def create_check_in(
+        self, queue_id: str, centre_id: str, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Atomically check a farmer in, assigning the next daily per-centre sequence number."""
+        with self._lock:
+            farmer_id = data["farmer_id"]
+            booking_id = data["booking_id"]
+            if farmer_id in self._active_farmer_ids or booking_id in self._active_booking_ids:
+                return None
+
+            queue_date = data["queue_date"]
+            date_key = (centre_id, queue_date)
+            sequence_number = self._daily_sequence.get(date_key, 0) + 1
+            self._daily_sequence[date_key] = sequence_number
+
+            record = {
+                "queue_id": queue_id,
+                "sequence_number": sequence_number,
+                **data,
+                "queue_date": queue_date,
+            }
+            self._data[queue_id] = record
+            self._active_farmer_ids[farmer_id] = queue_id
+            self._active_booking_ids[booking_id] = queue_id
+            return dict(record)
+
+    def count_waiting_ahead(
+        self, centre_id: str, queue_date: str, sequence_number: int
+    ) -> int:
+        """Count same-day waiting entries at a centre with a lower sequence number."""
+        with self._lock:
+            return sum(
+                1
+                for r in self._data.values()
+                if r.get("centre_id") == centre_id
+                and r.get("queue_date") == queue_date
+                and r.get("status") == "waiting"
+                and r.get("sequence_number") < sequence_number
+            )
+
+    def count_waiting(self, centre_id: str, queue_date: str) -> int:
+        """Count all waiting entries at a centre on a queue date."""
+        with self._lock:
+            return sum(
+                1
+                for r in self._data.values()
+                if r.get("centre_id") == centre_id
+                and r.get("queue_date") == queue_date
+                and r.get("status") == "waiting"
+            )
+
+    def resolve(
+        self, queue_id: str, farmer_id: str, new_status: str, resolved_at: datetime
+    ) -> Optional[Dict[str, Any]]:
+        """Move a farmer's own waiting entry to a terminal status and free its reservations."""
+        with self._lock:
+            record = self._data.get(queue_id)
+            if record is None or record.get("farmer_id") != farmer_id:
+                return None
+            if record.get("status") != "waiting":
+                return None
+            record["status"] = new_status
+            record["resolved_at"] = resolved_at
+            self._active_farmer_ids.pop(farmer_id, None)
+            self._active_booking_ids.pop(record["booking_id"], None)
+            return dict(record)
+
+
 # Process-wide singletons so the fallback store behaves consistently across
 # requests within a single dev server run.
 _farmer_repo = InMemoryFarmerRepository()
 _crop_repo = InMemoryCropRepository()
 _centre_repo = InMemoryCentreRepository()
 _slot_booking_repo = InMemorySlotBookingRepository()
+_queue_repo = InMemoryQueueRepository()
 
 
 def get_memory_farmer_repository() -> InMemoryFarmerRepository:
@@ -258,3 +427,8 @@ def get_memory_centre_repository() -> InMemoryCentreRepository:
 def get_memory_slot_booking_repository() -> InMemorySlotBookingRepository:
     """Return the process-wide singleton in-memory slot booking repository."""
     return _slot_booking_repo
+
+
+def get_memory_queue_repository() -> InMemoryQueueRepository:
+    """Return the process-wide singleton in-memory queue repository."""
+    return _queue_repo

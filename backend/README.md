@@ -14,11 +14,11 @@ This directory contains **backend only**. It does not touch:
 - ML models - AI/ML role (this backend exposes a placeholder integration
   point for their predictions once ready; see roadmap below)
 
-## Current status: Phase 2 of 4 (~50%)
+## Current status: Phase 3 of 4 (~75%)
 
-Implemented so far - the first two stages of the product flow
-(`Farmer -> Smart Slot -> Predicted Arrival -> ...`), built to be
-deployable as-is rather than a throwaway prototype:
+Implemented so far - the first three stages of the product flow
+(`Farmer -> Smart Slot -> Predicted Arrival -> Dynamic Queue -> ...`),
+built to be deployable as-is rather than a throwaway prototype:
 
 - Project scaffold (FastAPI app, settings, error handling)
 - Auth dependency that verifies Firebase ID tokens (an explicitly enabled
@@ -50,6 +50,32 @@ deployable as-is rather than a throwaway prototype:
   a deterministic heuristic computed from actual booked/capacity ratios,
   plus a basic "quieter centre in the same district" suggestion - same
   graceful-degradation shape the Firebase integration already uses.
+- **Dynamic Queue system**: a Smart Slot booking reserves capacity ahead
+  of time; checking in (`POST /api/v1/queue/check-in`) represents a
+  farmer's actual, live arrival-order position at the centre on the day
+  of their slot. Live position, people-ahead count, and a simple
+  estimated-wait heuristic are computed on every read - see
+  `app/services/queue_service.py`. There's no separate "centre staff"
+  role in this system yet (see `team_work_division.md`), so status
+  changes are self-reported and ownership-checked: a farmer checks
+  themselves in, then later marks their own entry served (procurement
+  complete) or left (leaving without being served) - the same pattern
+  Smart Slot cancellation already uses.
+- **Printable issued token**: `GET /api/v1/queue/{queue_id}/token` - a
+  branded, printer-friendly HTML page (same spirit/disclaimer as `/docs`
+  and `/status` below) showing a farmer's token number, centre, and live
+  status, for farmers without a smart device (or whoever is helping them)
+  to print or show at the centre.
+- **SMS gateway / phone-number OTP verification**: `app/core/sms.py` is a
+  generic SMS gateway client (no vendor chosen yet - see its docstring for
+  the placeholder payload shape and how to swap it in later). It's used
+  for two things: best-effort transactional notifications (booking
+  confirmed, checked-in-with-token-number) whose delivery failures do not
+  fail the primary action, and a proper OTP flow
+  (`POST /api/v1/farmers/me/phone/otp/request` /
+  `.../otp/verify`) that verifies a farmer's registered phone number
+  independently of Firebase Authentication (Infra's domain, used for
+  login/identity) - see `app/services/otp_service.py`.
 - **Production/deployment readiness**:
   - Liveness (`/api/v1/health`) and readiness (`/api/v1/health/ready`)
     endpoints, matching the standard container-platform health-check split
@@ -63,17 +89,17 @@ deployable as-is rather than a throwaway prototype:
     workers) and a `Procfile` for platforms that use one instead
   - Config fully via environment variables (`.env.example`), no
     hardcoded secrets
-- Test suite (95 tests) covering all of the above.
+- Test suite (149 test functions / 161 parametrized test cases) covering all of the above.
 
 ### Roadmap (remaining phases, future PRs)
 
 | Phase | Scope |
 |---|---|
 | ~~2~~ | ~~Procurement-centre listing, Smart Slot booking, congestion-prediction integration point (consumes AI/ML's endpoint)~~ done |
-| 3 | Dynamic Queue system (position, printable token generation), SMS/OTP integration |
+| ~~3~~ | ~~Dynamic Queue system (position, printable token generation), SMS/OTP integration~~ done |
 | 4 | Payment tracking, Historical farm record, Village Cluster Booking, polish |
 
-## API surface (Phase 1 + 2)
+## API surface (Phase 1 + 2 + 3)
 
 All endpoints are versioned under `/api/v1` and (except health) require
 `Authorization: Bearer <firebase-id-token>`.
@@ -94,6 +120,15 @@ All endpoints are versioned under `/api/v1` and (except health) require
 | GET | `/api/v1/bookings/me` | List the authenticated farmer's bookings |
 | GET | `/api/v1/bookings/{booking_id}` | Get one of the authenticated farmer's bookings |
 | POST | `/api/v1/bookings/{booking_id}/cancel` | Cancel a booking and free its slot capacity |
+| POST | `/api/v1/farmers/me/phone/otp/request` | Send a one-time verification code to the farmer's registered phone number |
+| POST | `/api/v1/farmers/me/phone/otp/verify` | Verify a submitted OTP code; marks `phone_verified` true |
+| POST | `/api/v1/queue/check-in` | Check the farmer in to their booked centre's live queue |
+| GET | `/api/v1/queue/me` | Get the farmer's active queue entry and live position |
+| GET | `/api/v1/queue/{queue_id}` | Get a specific queue entry owned by the farmer |
+| POST | `/api/v1/queue/{queue_id}/complete` | Self-report the farmer's own entry as served (procurement complete) |
+| POST | `/api/v1/queue/{queue_id}/leave` | Cancel the farmer's own queue entry without being served |
+| GET | `/api/v1/queue/centre/{centre_id}` | Aggregate, identity-free live queue status for a centre |
+| GET | `/api/v1/queue/{queue_id}/token` | Printable token page (HTML, not in the OpenAPI schema - see below) |
 
 Human-facing pages (disable in prod with `ENABLE_DOCS=false` if you don't
 want them public):
@@ -103,6 +138,7 @@ want them public):
 | `/docs` | Custom-branded Swagger UI |
 | `/redoc` | ReDoc API reference |
 | `/status` | Plain-English status page (version, environment, Firebase connectivity, links) |
+| `/api/v1/queue/{queue_id}/token` | Printable, branded token page for a farmer's own queue entry (auth required, ownership-checked; same disclaimer as `/docs`/`/status` - not the real frontend surface, just a fallback for farmers without a smart device) |
 
 ## Local setup
 
@@ -124,7 +160,11 @@ a stable, 32-byte-or-longer key in Google Secret Manager; configure its full
 version resource as `AADHAAR_HMAC_SECRET_NAME`. Leave
 `CONGESTION_PREDICTION_API_URL` unset until AI/ML has a model endpoint to
 point at - congestion predictions fall back to a heuristic in the meantime
-(see the Phase 2 section above).
+(see the Phase 2 section above). Leave `SMS_GATEWAY_BASE_URL` unset for
+local dev too - SMS sending (booking confirmations, check-in tokens, OTP
+codes) falls back to a generic skipped-delivery log (see `app/core/sms.py`
+and the Phase 3 section above). Destinations and message contents, including
+OTP codes, are never written to logs or returned in the API response.
 
 ## Running tests
 
@@ -133,14 +173,18 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-95/95 tests currently pass, covering registration validation (including
+149 test functions / 161 parametrized test cases currently pass, covering registration validation (including
 Aadhaar/phone format checks and duplicate-registration handling), profile
 updates, crop registration, procurement-centre listing/filtering, Smart
 Slot booking (including atomic capacity enforcement under concurrent
 bookings, duplicate-booking prevention, and cancellation freeing capacity
 back up), the congestion-prediction heuristic and its ML-endpoint
 integration path (including graceful fallback if that endpoint errors),
-the auth dependency's fallback behavior, and the health/docs/status pages.
+the Dynamic Queue system (live position/wait, self-reported completion,
+printable token page, concurrent check-in deduplication), OTP phone
+verification (expiry, attempt limits, redacted SMS fallback logging), the SMS
+gateway client, the auth dependency's fallback behavior, and the
+health/docs/status pages.
 
 ## Deploying
 
@@ -204,12 +248,20 @@ on any container-based host in the meantime.
 
 - **Frontend**: request/response shapes are the `FarmerCreate`/`FarmerOut`,
   `CropRegistrationCreate`/`CropOut`, `CentreOut`, `SlotBookingCreate`/
-  `SlotBookingOut`, and `CongestionOut` models in `app/schemas/`. Errors
-  come back as `{"error": {"code": "...", "message": "..."}}` with an
-  appropriate HTTP status, matching the error-state pattern in
-  `UI_rules.md` section 22. Booking a full slot window returns `409
-  conflict` (not a generic error) - a good case to route to a "pick a
-  different time" UI rather than a bare "something went wrong" message.
+  `SlotBookingOut`, `CongestionOut`, `QueueCheckInCreate`/`QueueEntryOut`/
+  `QueueCentreStatusOut`, and `OtpVerifyRequest`/`OtpRequestOut`/
+  `OtpVerifyOut` models in `app/schemas/`. Errors come back as
+  `{"error": {"code": "...", "message": "..."}}` with an appropriate HTTP
+  status, matching the error-state pattern in `UI_rules.md` section 22.
+  Booking a full slot window returns `409 conflict` (not a generic error) -
+  a good case to route to a "pick a different time" UI rather than a bare
+  "something went wrong" message; the same is true of checking in twice or
+  checking in before your slot date. `FarmerOut.phone_verified` is new -
+  false until a farmer completes the OTP flow. `GET
+  /api/v1/queue/{queue_id}/token` is plain HTML (not JSON) and isn't in
+  the OpenAPI schema - it's a backend-rendered fallback page, not meant to
+  be fetched/parsed by the frontend app itself (see its docstring in
+  `app/api/v1/queue.py`).
 - **Database & Infrastructure**: `app/repositories/firestore.py` is a
   placeholder using `farmers`/`crops`/`centres`/`slot_bookings` as
   collection names and flat documents matching the schemas above - please
@@ -220,8 +272,16 @@ on any container-based host in the meantime.
   data), and `slot_capacity_counters` is a small counter-per-(centre, date,
   window) collection the backend uses to keep capacity checks O(1) instead
   of counting booking documents on every request - flag if that pattern
-  conflicts with your Firestore setup. Also see the Vercel note above re:
-  final deployment target.
+  conflicts with your Firestore setup. New in Phase 3: `queue_entries`
+  holds live check-ins, with `active_farmer_queue_entries` /
+  `active_booking_queue_entries` as small uniqueness-index collections
+  (same reserve-then-create pattern as `aadhaar_reservations`) and
+  `queue_daily_counters` as the token-sequence counter (same shape as
+  `slot_capacity_counters`). Before deploying the backend, run
+  `firebase deploy --only firestore:indexes` from the repository root;
+  `firebase.json` points the CLI at `firestore.indexes.json`, which covers
+  the sequence-based `count_waiting_ahead` query. Also see the Vercel note
+  above re: final deployment target.
 - **AI/ML**: `GET /api/v1/centres/{centre_id}/congestion` is the
   integration point mentioned in `team_work_division.md` ("expose model
   predictions via an API endpoint...works closely with Backend Developer
@@ -234,7 +294,15 @@ on any container-based host in the meantime.
   shape and `app/services/congestion_service.py` for the current
   heuristic it's replacing). Until then, the backend serves a deterministic
   fallback computed from real booking data so the endpoint is fully usable
-  today - no frontend changes needed when the real model comes online.
+  today - no frontend changes needed when the real model comes online. No
+  changes from Phase 3.
+- **Whoever picks an SMS vendor**: `app/core/sms.py` sends a generic
+  `{"to": ..., "message": ...}` JSON POST with a Bearer `Authorization`
+  header to `SMS_GATEWAY_BASE_URL` - update the payload shape in that one
+  file once a vendor is chosen; nothing else in the codebase needs to
+  change (same integration-point pattern as the congestion endpoint
+  above). Until then it logs only a generic skipped-delivery event, so local
+  dev/tests never need a real gateway or expose message contents.
 - **Whoever manages the Secret Manager entry**: `AADHAAR_HMAC_SECRET_NAME`
   must pin an explicit numeric version (`.../versions/7`, not
   `.../versions/latest`) - the app rejects a mutable alias outright. This

@@ -15,11 +15,18 @@ from fastapi import Depends, Header
 from app.core.config import Settings, get_settings
 from app.core.exceptions import ServiceUnavailableError, UnauthorizedError
 from app.core.firebase import FirebaseState, get_firebase_state
-from app.repositories.base import CentreRepository, CropRepository, FarmerRepository, SlotBookingRepository
+from app.repositories.base import (
+    CentreRepository,
+    CropRepository,
+    FarmerRepository,
+    QueueRepository,
+    SlotBookingRepository,
+)
 from app.repositories.memory import (
     get_memory_centre_repository,
     get_memory_crop_repository,
     get_memory_farmer_repository,
+    get_memory_queue_repository,
     get_memory_slot_booking_repository,
 )
 
@@ -115,3 +122,18 @@ def get_slot_booking_repository(
     from app.repositories.firestore import FirestoreSlotBookingRepository
 
     return FirestoreSlotBookingRepository(client)
+
+
+def get_queue_repository(
+    firebase: FirebaseState = Depends(get_firebase_state),
+    settings: Settings = Depends(get_settings),
+) -> QueueRepository:
+    """Return a queue repository (Firestore-backed or in-memory fallback)."""
+    client = firebase.firestore_client()
+    if client is None:
+        if settings.is_development:
+            return get_memory_queue_repository()
+        raise ServiceUnavailableError("Firestore is unavailable")
+    from app.repositories.firestore import FirestoreQueueRepository
+
+    return FirestoreQueueRepository(client)

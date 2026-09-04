@@ -6,6 +6,7 @@ reserve-then-create pattern app/services/farmer_service.py uses for
 Aadhaar uniqueness, so two farmers racing for the last slot in a window
 can't both succeed (see tests/test_bookings.py's concurrency test).
 """
+import logging
 import uuid
 from datetime import datetime
 from typing import List
@@ -21,6 +22,31 @@ from app.repositories.base import (
 from app.schemas.slot import SlotBookingCreate, SlotBookingOut, utcnow
 
 PROCUREMENT_CENTRE_TIMEZONE = ZoneInfo("Asia/Kolkata")
+
+logger = logging.getLogger("app.slot")
+
+
+def _notify_booking_confirmed(farmer_repo: FarmerRepository, record: dict) -> None:
+    """Send a best-effort SMS confirmation without failing the booking.
+
+    This is the Phase 3 SMS integration; see app/core/sms.py.
+    """
+    try:
+        from app.core.config import get_settings
+        from app.core.sms import send_sms
+
+        farmer = farmer_repo.get(record["farmer_id"])
+        phone_number = farmer.get("phone_number") if farmer else None
+        if not phone_number:
+            return
+        send_sms(
+            get_settings(),
+            phone_number,
+            f"KisanSetu: your slot at {record['centre_id']} on {record['slot_date']} "
+            f"({record['slot_window']}) is confirmed.",
+        )
+    except Exception:  # pragma: no cover - notification is best-effort only
+        logger.exception("Failed to send booking-confirmation SMS")
 
 
 def book_slot(
@@ -66,6 +92,14 @@ def book_slot(
         raise ConflictError(
             "This slot is full or you already have an active booking for it"
         )
+    # Imported lazily to avoid queue_service's module-level timezone import
+    # creating a cycle while these service modules are initialized.
+    from app.services.queue_service import dispatch_notification
+
+    dispatch_notification(
+        lambda: _notify_booking_confirmed(farmer_repo, record),
+        "Booking-confirmation SMS",
+    )
     return SlotBookingOut.model_validate(record)
 
 
