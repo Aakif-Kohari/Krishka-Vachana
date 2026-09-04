@@ -1,15 +1,20 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 from app.repositories import firestore as firestore_module
 from app.repositories.firestore import (
     ACTIVE_SLOT_BOOKINGS_COLLECTION,
     CENTRES_COLLECTION,
+    FARMERS_COLLECTION,
+    QUEUE_ENTRIES_COLLECTION,
     SLOT_BOOKINGS_COLLECTION,
     SLOT_CAPACITY_COUNTERS_COLLECTION,
     FirestoreCentreRepository,
+    FirestoreFarmerRepository,
+    FirestoreQueueRepository,
     FirestoreSlotBookingRepository,
 )
+from app.repositories.base import OtpVerificationResult
 
 
 def _snapshot(*, exists, data=None, doc_id="doc-id"):
@@ -149,3 +154,85 @@ def test_firestore_booking_serializes_date_and_creates_active_key(monkeypatch):
     )
     assert booking_write["slot_date"] == "2026-09-03"
     assert any(call.args[0] is active_ref for call in transaction.create.call_args_list)
+
+
+def test_firestore_phone_otp_attempt_is_consumed_in_transaction(monkeypatch):
+    monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
+    client = MagicMock()
+    transaction = MagicMock()
+    client.transaction.return_value = transaction
+    farmer_ref = client.collection.return_value.document.return_value
+    farmer_ref.get.return_value = _snapshot(
+        exists=True,
+        data={
+            "phone_otp_hash": "expected-hash",
+            "phone_otp_expires_at": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "phone_otp_attempts": 0,
+        },
+    )
+
+    result = FirestoreFarmerRepository(client).consume_phone_otp_attempt(
+        "farmer-id", "expected-hash", datetime.now(timezone.utc), 5
+    )
+
+    assert result is OtpVerificationResult.VERIFIED
+    client.collection.assert_called_with(FARMERS_COLLECTION)
+    farmer_ref.get.assert_called_once_with(transaction=transaction)
+    transaction.update.assert_called_once_with(
+        farmer_ref,
+        {
+            "phone_otp_hash": None,
+            "phone_otp_expires_at": None,
+            "phone_otp_attempts": 0,
+            "phone_verified": True,
+        },
+    )
+
+
+def test_firestore_queue_counts_use_aggregation_and_field_filters():
+    client = MagicMock()
+    collection = client.collection.return_value
+    first_query = collection.where.return_value
+    second_query = first_query.where.return_value
+    final_query = second_query.where.return_value
+    count_value = MagicMock(value=2)
+    final_query.count.return_value.get.return_value = [[count_value]]
+
+    result = FirestoreQueueRepository(client).count_waiting_ahead("centre-id", 3)
+
+    assert result == 2
+    client.collection.assert_called_once_with(QUEUE_ENTRIES_COLLECTION)
+    filters = [
+        collection.where.call_args.kwargs["filter"],
+        first_query.where.call_args.kwargs["filter"],
+        second_query.where.call_args.kwargs["filter"],
+    ]
+    assert [(item.field_path, item.op_string, item.value) for item in filters] == [
+        ("centre_id", "==", "centre-id"),
+        ("status", "==", "waiting"),
+        ("sequence_number", "<", 3),
+    ]
+    final_query.count.assert_called_once_with(alias="count")
+    final_query.stream.assert_not_called()
+
+
+def test_firestore_waiting_count_uses_aggregation_and_field_filters():
+    client = MagicMock()
+    collection = client.collection.return_value
+    first_query = collection.where.return_value
+    final_query = first_query.where.return_value
+    final_query.count.return_value.get.return_value = [[MagicMock(value=4)]]
+
+    result = FirestoreQueueRepository(client).count_waiting("centre-id")
+
+    assert result == 4
+    filters = [
+        collection.where.call_args.kwargs["filter"],
+        first_query.where.call_args.kwargs["filter"],
+    ]
+    assert [(item.field_path, item.op_string, item.value) for item in filters] == [
+        ("centre_id", "==", "centre-id"),
+        ("status", "==", "waiting"),
+    ]
+    final_query.count.assert_called_once_with(alias="count")
+    final_query.stream.assert_not_called()

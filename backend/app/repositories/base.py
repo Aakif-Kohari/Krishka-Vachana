@@ -8,7 +8,19 @@ touching each other's code directly.
 """
 from abc import ABC, abstractmethod
 from datetime import date, datetime
+from enum import Enum
 from typing import Any, Dict, List, Optional
+
+
+class OtpVerificationResult(str, Enum):
+    """Outcome of atomically consuming one phone OTP verification attempt."""
+
+    NOT_FOUND = "not_found"
+    MISSING = "missing"
+    EXPIRED = "expired"
+    LOCKED = "locked"
+    INCORRECT = "incorrect"
+    VERIFIED = "verified"
 
 
 class FarmerRepository(ABC):
@@ -44,6 +56,17 @@ class FarmerRepository(ABC):
     @abstractmethod
     def update(self, farmer_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Update a farmer record with the provided data."""
+        ...
+
+    @abstractmethod
+    def consume_phone_otp_attempt(
+        self,
+        farmer_id: str,
+        submitted_hash: str,
+        attempted_at: datetime,
+        max_attempts: int,
+    ) -> OtpVerificationResult:
+        """Atomically verify or consume one phone OTP attempt."""
         ...
 
 
@@ -163,8 +186,8 @@ class QueueRepository(ABC):
         ...
 
     @abstractmethod
-    def count_waiting_ahead(self, centre_id: str, joined_at: datetime) -> int:
-        """Count waiting entries at a centre that joined strictly before joined_at."""
+    def count_waiting_ahead(self, centre_id: str, sequence_number: int) -> int:
+        """Count waiting entries at a centre with a lower sequence number."""
         ...
 
     @abstractmethod

@@ -89,7 +89,7 @@ built to be deployable as-is rather than a throwaway prototype:
     workers) and a `Procfile` for platforms that use one instead
   - Config fully via environment variables (`.env.example`), no
     hardcoded secrets
-- Test suite (134 tests) covering all of the above.
+- Test suite (146 tests) covering all of the above.
 
 ### Roadmap (remaining phases, future PRs)
 
@@ -162,9 +162,9 @@ version resource as `AADHAAR_HMAC_SECRET_NAME`. Leave
 point at - congestion predictions fall back to a heuristic in the meantime
 (see the Phase 2 section above). Leave `SMS_GATEWAY_BASE_URL` unset for
 local dev too - SMS sending (booking confirmations, check-in tokens, OTP
-codes) falls back to logging the message instead (see `app/core/sms.py`
-and the Phase 3 section above); this means locally-requested OTP codes are
-only visible in the server logs, never in the API response.
+codes) falls back to a generic skipped-delivery log (see `app/core/sms.py`
+and the Phase 3 section above). Destinations and message contents, including
+OTP codes, are never written to logs or returned in the API response.
 
 ## Running tests
 
@@ -173,7 +173,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-134/134 tests currently pass, covering registration validation (including
+146/146 tests currently pass, covering registration validation (including
 Aadhaar/phone format checks and duplicate-registration handling), profile
 updates, crop registration, procurement-centre listing/filtering, Smart
 Slot booking (including atomic capacity enforcement under concurrent
@@ -182,7 +182,7 @@ back up), the congestion-prediction heuristic and its ML-endpoint
 integration path (including graceful fallback if that endpoint errors),
 the Dynamic Queue system (live position/wait, self-reported completion,
 printable token page, concurrent check-in deduplication), OTP phone
-verification (expiry, attempt limits, dry-run SMS logging), the SMS
+verification (expiry, attempt limits, redacted SMS fallback logging), the SMS
 gateway client, the auth dependency's fallback behavior, and the
 health/docs/status pages.
 
@@ -277,10 +277,11 @@ on any container-based host in the meantime.
   `active_booking_queue_entries` as small uniqueness-index collections
   (same reserve-then-create pattern as `aadhaar_reservations`) and
   `queue_daily_counters` as the token-sequence counter (same shape as
-  `slot_capacity_counters`) - see `app/repositories/firestore.py`'s
-  `FirestoreQueueRepository` docstring for the composite-index requirement
-  `count_waiting_ahead` needs. Also see the Vercel note above re: final
-  deployment target.
+  `slot_capacity_counters`). Before deploying the backend, run
+  `firebase deploy --only firestore:indexes` from the repository root;
+  `firebase.json` points the CLI at `firestore.indexes.json`, which covers
+  the sequence-based `count_waiting_ahead` query. Also see the Vercel note
+  above re: final deployment target.
 - **AI/ML**: `GET /api/v1/centres/{centre_id}/congestion` is the
   integration point mentioned in `team_work_division.md` ("expose model
   predictions via an API endpoint...works closely with Backend Developer
@@ -300,8 +301,8 @@ on any container-based host in the meantime.
   header to `SMS_GATEWAY_BASE_URL` - update the payload shape in that one
   file once a vendor is chosen; nothing else in the codebase needs to
   change (same integration-point pattern as the congestion endpoint
-  above). Until then it logs instead of sending, so local dev/tests never
-  need a real gateway.
+  above). Until then it logs only a generic skipped-delivery event, so local
+  dev/tests never need a real gateway or expose message contents.
 - **Whoever manages the Secret Manager entry**: `AADHAAR_HMAC_SECRET_NAME`
   must pin an explicit numeric version (`.../versions/7`, not
   `.../versions/latest`) - the app rejects a mutable alias outright. This

@@ -25,7 +25,7 @@ logger = logging.getLogger("app.sms")
 
 
 def send_sms(settings: Settings, phone_number: str, message: str) -> bool:
-    """Send an SMS, or log a dry-run message when no gateway is configured.
+    """Send an SMS, or log a generic event when no gateway is configured.
 
     Best-effort: never raises. Callers should treat this as a side effect,
     not a required step - see app/services/queue_service.py,
@@ -34,7 +34,7 @@ def send_sms(settings: Settings, phone_number: str, message: str) -> bool:
     operation).
     """
     if not settings.sms_gateway_base_url:
-        logger.info("SMS gateway not configured (dry run) - to=%s message=%r", phone_number, message)
+        logger.info("SMS delivery skipped: gateway not configured")
         return False
 
     try:
@@ -50,5 +50,5 @@ def send_sms(settings: Settings, phone_number: str, message: str) -> bool:
         response.raise_for_status()
         return True
     except Exception:  # pragma: no cover - depends on live SMS gateway
-        logger.exception("Failed to send SMS to %s", phone_number)
+        logger.exception("Failed to send SMS")
         return False

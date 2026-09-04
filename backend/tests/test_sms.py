@@ -10,8 +10,9 @@ def test_send_sms_dry_run_when_unconfigured(caplog):
     with caplog.at_level(logging.INFO, logger="app.sms"):
         sent = send_sms(settings, "9876543210", "hello")
     assert sent is False
-    assert "dry run" in caplog.text
-    assert "9876543210" in caplog.text
+    assert "gateway not configured" in caplog.text
+    assert "9876543210" not in caplog.text
+    assert "hello" not in caplog.text
 
 
 def test_send_sms_posts_when_configured(monkeypatch):

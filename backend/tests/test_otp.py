@@ -1,16 +1,19 @@
 """Tests for phone-number OTP verification (Phase 3).
 
 The SMS gateway is unconfigured by default in tests (see .env.example /
-Settings defaults), so every request_otp call takes the dry-run path in
-app/core/sms.py and logs the code instead of sending it - these tests
-recover the code from caplog, mirroring test_health.py's
-`test_readiness_hides_firestore_exception` pattern for asserting on
-logged content.
+Settings defaults). OTP generation is patched to a known value because
+delivery logs intentionally redact both the destination and code.
 """
 import logging
-import re
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from pydantic import ValidationError
 
 from app.core.config import Settings
+from app.core.exceptions import ConflictError
+from app.services import otp_service
 
 FARMER_PAYLOAD = {
     "full_name": "Ravi Kumar",
@@ -30,14 +33,13 @@ def _register_farmer(client, auth_headers):
     return r.json()
 
 
-def _request_and_capture_code(client, auth_headers, caplog) -> str:
-    """Request an OTP and extract the code from the dry-run log message."""
-    with caplog.at_level(logging.INFO, logger="app.otp"):
-        r = client.post("/api/v1/farmers/me/phone/otp/request", headers=auth_headers)
+def _request_known_code(client, auth_headers, monkeypatch) -> str:
+    """Request an OTP after replacing randomness with a deterministic value."""
+    code = "123456"
+    monkeypatch.setattr(otp_service.secrets, "randbelow", lambda _upper_bound: int(code))
+    r = client.post("/api/v1/farmers/me/phone/otp/request", headers=auth_headers)
     assert r.status_code == 200, r.json()
-    match = re.search(r"dry run.*?:\s*(\d+)", caplog.text)
-    assert match, f"could not find OTP code in logs: {caplog.text!r}"
-    return match.group(1)
+    return code
 
 
 def test_request_otp_requires_registration(client, auth_headers):
@@ -45,12 +47,17 @@ def test_request_otp_requires_registration(client, auth_headers):
     assert r.status_code == 404
 
 
-def test_request_otp_success(client, auth_headers, caplog):
+def test_request_otp_success(client, auth_headers, monkeypatch, caplog):
     _register_farmer(client, auth_headers)
-    with caplog.at_level(logging.INFO, logger="app.otp"):
+    code = "123456"
+    monkeypatch.setattr(otp_service.secrets, "randbelow", lambda _upper_bound: int(code))
+    with caplog.at_level(logging.INFO):
         r = client.post("/api/v1/farmers/me/phone/otp/request", headers=auth_headers)
+
     assert r.status_code == 200
     assert r.json() == {"message": "Verification code sent", "expires_in_seconds": 600}
+    assert code not in caplog.text
+    assert FARMER_PAYLOAD["phone_number"] not in caplog.text
 
 
 def test_farmer_starts_unverified(client, auth_headers):
@@ -59,9 +66,9 @@ def test_farmer_starts_unverified(client, auth_headers):
     assert r.json()["phone_verified"] is False
 
 
-def test_verify_otp_success(client, auth_headers, caplog):
+def test_verify_otp_success(client, auth_headers, monkeypatch):
     _register_farmer(client, auth_headers)
-    code = _request_and_capture_code(client, auth_headers, caplog)
+    code = _request_known_code(client, auth_headers, monkeypatch)
 
     r = client.post("/api/v1/farmers/me/phone/otp/verify", json={"otp_code": code}, headers=auth_headers)
 
@@ -72,9 +79,9 @@ def test_verify_otp_success(client, auth_headers, caplog):
     assert profile.json()["phone_verified"] is True
 
 
-def test_verify_otp_wrong_code(client, auth_headers, caplog):
+def test_verify_otp_wrong_code(client, auth_headers, monkeypatch):
     _register_farmer(client, auth_headers)
-    _request_and_capture_code(client, auth_headers, caplog)
+    _request_known_code(client, auth_headers, monkeypatch)
 
     r = client.post("/api/v1/farmers/me/phone/otp/verify", json={"otp_code": "000000"}, headers=auth_headers)
 
@@ -88,9 +95,9 @@ def test_verify_otp_without_request_is_conflict(client, auth_headers):
     assert r.status_code == 409
 
 
-def test_verify_otp_too_many_attempts_invalidates_code(client, auth_headers, caplog):
+def test_verify_otp_too_many_attempts_invalidates_code(client, auth_headers, monkeypatch):
     _register_farmer(client, auth_headers)
-    code = _request_and_capture_code(client, auth_headers, caplog)
+    code = _request_known_code(client, auth_headers, monkeypatch)
 
     for _ in range(5):
         r = client.post("/api/v1/farmers/me/phone/otp/verify", json={"otp_code": "000000"}, headers=auth_headers)
@@ -101,11 +108,9 @@ def test_verify_otp_too_many_attempts_invalidates_code(client, auth_headers, cap
     assert r.status_code == 409
 
 
-def test_verify_otp_expired(client, auth_headers, caplog, farmer_repo):
-    from datetime import datetime, timedelta, timezone
-
+def test_verify_otp_expired(client, auth_headers, monkeypatch, farmer_repo):
     farmer = _register_farmer(client, auth_headers)
-    code = _request_and_capture_code(client, auth_headers, caplog)
+    code = _request_known_code(client, auth_headers, monkeypatch)
 
     # Force the stored expiry into the past without touching otp_service's logic.
     farmer_repo.update(
@@ -117,9 +122,9 @@ def test_verify_otp_expired(client, auth_headers, caplog, farmer_repo):
     assert r.status_code == 409
 
 
-def test_otp_hash_never_returned_in_farmer_response(client, auth_headers, caplog):
+def test_otp_hash_never_returned_in_farmer_response(client, auth_headers, monkeypatch):
     _register_farmer(client, auth_headers)
-    _request_and_capture_code(client, auth_headers, caplog)
+    _request_known_code(client, auth_headers, monkeypatch)
 
     profile = client.get("/api/v1/farmers/me", headers=auth_headers)
     body = profile.json()
@@ -139,3 +144,36 @@ def test_request_otp_respects_custom_settings(client, auth_headers):
 
     assert r.status_code == 200
     assert r.json()["expires_in_seconds"] == 120
+
+
+@pytest.mark.parametrize("field", ["otp_length", "otp_ttl_seconds", "otp_max_attempts"])
+@pytest.mark.parametrize("value", [0, -1])
+def test_otp_settings_reject_non_positive_values(field, value):
+    with pytest.raises(ValidationError):
+        Settings(**{field: value})
+
+
+def test_concurrent_valid_otp_can_only_be_consumed_once(farmer_repo):
+    code = "123456"
+    farmer_repo.create(
+        "farmer-id",
+        {
+            "phone_otp_hash": otp_service._hash_code(code),
+            "phone_otp_expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
+            "phone_otp_attempts": 0,
+            "phone_verified": False,
+        },
+    )
+
+    def verify(_):
+        try:
+            otp_service.verify_otp(Settings(), farmer_repo, "farmer-id", code)
+            return "verified"
+        except ConflictError:
+            return "consumed"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(verify, range(2)))
+
+    assert sorted(results) == ["consumed", "verified"]
+    assert farmer_repo.get("farmer-id")["phone_verified"] is True

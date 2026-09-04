@@ -9,6 +9,7 @@ test_farmers.py already use for cross-farmer scenarios.
 """
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Event
 
 from app.core.exceptions import ConflictError
 from app.repositories.memory import InMemoryFarmerRepository, InMemoryQueueRepository, InMemorySlotBookingRepository
@@ -383,3 +384,63 @@ def test_concurrent_check_in_same_booking_allows_only_one():
     successes = [r for r in results if r is not None]
     assert len(successes) == 1
     assert successes[0].sequence_number == 1
+
+
+def test_check_in_notification_dispatch_does_not_wait_for_sms(monkeypatch):
+    started = Event()
+    release = Event()
+
+    def slow_notification(*_args):
+        started.set()
+        release.wait(timeout=2)
+
+    monkeypatch.setattr(queue_service, "_notify_check_in", slow_notification)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as caller:
+            dispatched = caller.submit(
+                queue_service._dispatch_check_in_notification,
+                InMemoryFarmerRepository(),
+                {},
+            )
+            assert started.wait(timeout=1)
+            dispatched.result(timeout=0.5)
+    finally:
+        release.set()
+
+
+def test_concurrent_check_ins_keep_token_and_position_order_consistent(monkeypatch):
+    booking_repo = InMemorySlotBookingRepository()
+    queue_repo = InMemoryQueueRepository()
+    farmer_repo = InMemoryFarmerRepository()
+    monkeypatch.setattr(queue_service, "_dispatch_check_in_notification", lambda *_args: None)
+
+    for farmer_id in ("farmer-a", "farmer-b"):
+        farmer_repo.create(farmer_id, {"phone_number": "9876543210", "full_name": "Test"})
+        booking_repo.create_if_capacity_available(
+            f"booking-{farmer_id}",
+            10,
+            {
+                "farmer_id": farmer_id,
+                "centre_id": "centre-1",
+                "slot_date": TODAY_DATE,
+                "slot_window": "08:00-10:00",
+                "status": "booked",
+                "created_at": datetime.now(timezone.utc),
+            },
+        )
+
+    def check_in(farmer_id):
+        return queue_service.check_in(
+            queue_repo,
+            booking_repo,
+            farmer_repo,
+            farmer_id,
+            QueueCheckInCreate(booking_id=f"booking-{farmer_id}"),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        entries = list(executor.map(check_in, ("farmer-a", "farmer-b")))
+
+    refreshed = [queue_service.get_queue_entry(queue_repo, entry.farmer_id, entry.queue_id) for entry in entries]
+    ordered = sorted(refreshed, key=lambda entry: entry.sequence_number)
+    assert [(entry.token_number, entry.position) for entry in ordered] == [("001", 1), ("002", 2)]

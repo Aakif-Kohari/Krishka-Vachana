@@ -12,6 +12,7 @@ from app.repositories.base import (
     CentreRepository,
     CropRepository,
     FarmerRepository,
+    OtpVerificationResult,
     QueueRepository,
     SlotBookingRepository,
 )
@@ -86,6 +87,46 @@ class InMemoryFarmerRepository(FarmerRepository):
             record = self._data.setdefault(farmer_id, {"farmer_id": farmer_id})
             record.update(data)
             return dict(record)
+
+    def consume_phone_otp_attempt(
+        self,
+        farmer_id: str,
+        submitted_hash: str,
+        attempted_at: datetime,
+        max_attempts: int,
+    ) -> OtpVerificationResult:
+        """Atomically verify or consume one phone OTP attempt."""
+        with self._lock:
+            record = self._data.get(farmer_id)
+            if record is None:
+                return OtpVerificationResult.NOT_FOUND
+
+            stored_hash = record.get("phone_otp_hash")
+            expires_at = record.get("phone_otp_expires_at")
+            if not stored_hash or not expires_at:
+                return OtpVerificationResult.MISSING
+
+            clear_challenge = {
+                "phone_otp_hash": None,
+                "phone_otp_expires_at": None,
+                "phone_otp_attempts": 0,
+            }
+            if attempted_at > expires_at:
+                record.update(clear_challenge)
+                return OtpVerificationResult.EXPIRED
+
+            attempts = record.get("phone_otp_attempts", 0)
+            if attempts >= max_attempts:
+                record.update(clear_challenge)
+                return OtpVerificationResult.LOCKED
+
+            if submitted_hash != stored_hash:
+                record["phone_otp_attempts"] = attempts + 1
+                return OtpVerificationResult.INCORRECT
+
+            record["phone_verified"] = True
+            record.update(clear_challenge)
+            return OtpVerificationResult.VERIFIED
 
 
 class InMemoryCropRepository(CropRepository):
@@ -289,15 +330,15 @@ class InMemoryQueueRepository(QueueRepository):
             self._active_booking_ids[booking_id] = queue_id
             return dict(record)
 
-    def count_waiting_ahead(self, centre_id: str, joined_at: datetime) -> int:
-        """Count waiting entries at a centre that joined strictly before joined_at."""
+    def count_waiting_ahead(self, centre_id: str, sequence_number: int) -> int:
+        """Count waiting entries at a centre with a lower sequence number."""
         with self._lock:
             return sum(
                 1
                 for r in self._data.values()
                 if r.get("centre_id") == centre_id
                 and r.get("status") == "waiting"
-                and r.get("joined_at") < joined_at
+                and r.get("sequence_number") < sequence_number
             )
 
     def count_waiting(self, centre_id: str) -> int:

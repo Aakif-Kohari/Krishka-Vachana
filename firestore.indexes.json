@@ -1,0 +1,23 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "queue_entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "centre_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "sequence_number",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

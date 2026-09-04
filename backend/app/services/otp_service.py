@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from app.core.config import Settings
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.core.sms import send_sms
-from app.repositories.base import FarmerRepository
+from app.repositories.base import FarmerRepository, OtpVerificationResult
 from app.schemas.otp import OtpRequestOut, OtpVerifyOut
 
 logger = logging.getLogger("app.otp")
@@ -58,44 +58,27 @@ def request_otp(settings: Settings, farmer_repo: FarmerRepository, farmer_id: st
         f"It expires in {settings.otp_ttl_seconds // 60} minutes.",
     )
     if not sent:
-        # Dry-run/local-dev visibility only (see app/core/sms.py) - the code
-        # itself is never returned in the API response.
-        logger.info("OTP for farmer %s (dry run, SMS gateway unset): %s", farmer_id, code)
+        logger.info("OTP delivery was not completed")
 
     return OtpRequestOut(message="Verification code sent", expires_in_seconds=settings.otp_ttl_seconds)
 
 
 def verify_otp(settings: Settings, farmer_repo: FarmerRepository, farmer_id: str, otp_code: str) -> OtpVerifyOut:
     """Verify a submitted OTP code against the farmer's pending challenge."""
-    farmer = farmer_repo.get(farmer_id)
-    if farmer is None:
-        raise NotFoundError("Farmer profile not found - register first")
-
-    stored_hash = farmer.get("phone_otp_hash")
-    expires_at = farmer.get("phone_otp_expires_at")
-    attempts = farmer.get("phone_otp_attempts", 0)
-
-    if not stored_hash or not expires_at:
-        raise ConflictError("No verification code was requested, or it already expired")
-    if utcnow() > expires_at:
-        _clear_otp(farmer_repo, farmer_id)
-        raise ConflictError("Verification code expired - request a new one")
-    if attempts >= settings.otp_max_attempts:
-        _clear_otp(farmer_repo, farmer_id)
-        raise ConflictError("Too many incorrect attempts - request a new code")
-
-    if _hash_code(otp_code) != stored_hash:
-        farmer_repo.update(farmer_id, {"phone_otp_attempts": attempts + 1})
-        raise ValidationAppError("Incorrect verification code")
-
-    farmer_repo.update(farmer_id, {"phone_verified": True})
-    _clear_otp(farmer_repo, farmer_id)
-    return OtpVerifyOut(phone_verified=True)
-
-
-def _clear_otp(farmer_repo: FarmerRepository, farmer_id: str) -> None:
-    """Clear the OTP challenge fields from a farmer's record."""
-    farmer_repo.update(
+    result = farmer_repo.consume_phone_otp_attempt(
         farmer_id,
-        {"phone_otp_hash": None, "phone_otp_expires_at": None, "phone_otp_attempts": 0},
+        _hash_code(otp_code),
+        utcnow(),
+        settings.otp_max_attempts,
     )
+    if result is OtpVerificationResult.NOT_FOUND:
+        raise NotFoundError("Farmer profile not found - register first")
+    if result is OtpVerificationResult.MISSING:
+        raise ConflictError("No verification code was requested, or it already expired")
+    if result is OtpVerificationResult.EXPIRED:
+        raise ConflictError("Verification code expired - request a new one")
+    if result is OtpVerificationResult.LOCKED:
+        raise ConflictError("Too many incorrect attempts - request a new code")
+    if result is OtpVerificationResult.INCORRECT:
+        raise ValidationAppError("Incorrect verification code")
+    return OtpVerifyOut(phone_verified=True)

@@ -8,6 +8,7 @@ backend needs to talk to services that already exist.
 from functools import lru_cache
 from typing import List
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -51,9 +52,9 @@ class Settings(BaseSettings):
 
     # Phone-number OTP verification (Phase 3, see app/services/otp_service.py).
     # Independent of Firebase Authentication - see app/schemas/otp.py.
-    otp_length: int = 6
-    otp_ttl_seconds: int = 600
-    otp_max_attempts: int = 5
+    otp_length: int = Field(default=6, ge=1)
+    otp_ttl_seconds: int = Field(default=600, ge=1)
+    otp_max_attempts: int = Field(default=5, ge=1)
 
     # API
     api_v1_prefix: str = "/api/v1"

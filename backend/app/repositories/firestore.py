@@ -16,12 +16,14 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 from pydantic import ValidationError
 
 from app.repositories.base import (
     CentreRepository,
     CropRepository,
     FarmerRepository,
+    OtpVerificationResult,
     QueueRepository,
     SlotBookingRepository,
 )
@@ -152,6 +154,52 @@ class FirestoreFarmerRepository(FarmerRepository):
         ref.update(data)
         doc = ref.get()
         return doc.to_dict()
+
+    def consume_phone_otp_attempt(
+        self,
+        farmer_id: str,
+        submitted_hash: str,
+        attempted_at: datetime,
+        max_attempts: int,
+    ) -> OtpVerificationResult:
+        """Atomically verify or consume one phone OTP attempt in a transaction."""
+        farmer_ref = self._client.collection(FARMERS_COLLECTION).document(farmer_id)
+        transaction = self._client.transaction()
+
+        @firestore.transactional
+        def consume(transaction) -> OtpVerificationResult:
+            snapshot = farmer_ref.get(transaction=transaction)
+            if not snapshot.exists:
+                return OtpVerificationResult.NOT_FOUND
+
+            record = snapshot.to_dict()
+            stored_hash = record.get("phone_otp_hash")
+            expires_at = record.get("phone_otp_expires_at")
+            if not stored_hash or not expires_at:
+                return OtpVerificationResult.MISSING
+
+            clear_challenge = {
+                "phone_otp_hash": None,
+                "phone_otp_expires_at": None,
+                "phone_otp_attempts": 0,
+            }
+            if attempted_at > expires_at:
+                transaction.update(farmer_ref, clear_challenge)
+                return OtpVerificationResult.EXPIRED
+
+            attempts = record.get("phone_otp_attempts", 0)
+            if attempts >= max_attempts:
+                transaction.update(farmer_ref, clear_challenge)
+                return OtpVerificationResult.LOCKED
+
+            if submitted_hash != stored_hash:
+                transaction.update(farmer_ref, {"phone_otp_attempts": attempts + 1})
+                return OtpVerificationResult.INCORRECT
+
+            transaction.update(farmer_ref, {**clear_challenge, "phone_verified": True})
+            return OtpVerificationResult.VERIFIED
+
+        return consume(transaction)
 
 
 class FirestoreCropRepository(CropRepository):
@@ -381,10 +429,8 @@ class FirestoreQueueRepository(QueueRepository):
     """Firestore-backed implementation of QueueRepository.
 
     TODO (coordinate with Database & Infrastructure engineer): confirm
-    "queue_entries" collection name/schema, and that a composite index
-    exists for the (centre_id ==, status ==, joined_at <) query used by
-    count_waiting_ahead - Firestore requires one for this combination of
-    filters.
+    "queue_entries" collection name/schema. The composite index for the
+    position query is declared in the repository's firestore.indexes.json.
     """
 
     def __init__(self, client) -> None:
@@ -442,24 +488,30 @@ class FirestoreQueueRepository(QueueRepository):
 
         return create(transaction)
 
-    def count_waiting_ahead(self, centre_id: str, joined_at: datetime) -> int:
-        """Count waiting entries at a centre that joined strictly before joined_at."""
+    @staticmethod
+    def _count(query) -> int:
+        """Return a Firestore server-side aggregation count."""
+        results = query.count(alias="count").get()
+        return results[0][0].value if results else 0
+
+    def count_waiting_ahead(self, centre_id: str, sequence_number: int) -> int:
+        """Count waiting entries at a centre with a lower sequence number."""
         query = (
             self._client.collection(QUEUE_ENTRIES_COLLECTION)
-            .where("centre_id", "==", centre_id)
-            .where("status", "==", "waiting")
-            .where("joined_at", "<", joined_at)
+            .where(filter=FieldFilter("centre_id", "==", centre_id))
+            .where(filter=FieldFilter("status", "==", "waiting"))
+            .where(filter=FieldFilter("sequence_number", "<", sequence_number))
         )
-        return sum(1 for _ in query.stream())
+        return self._count(query)
 
     def count_waiting(self, centre_id: str) -> int:
         """Count all waiting entries at a centre."""
         query = (
             self._client.collection(QUEUE_ENTRIES_COLLECTION)
-            .where("centre_id", "==", centre_id)
-            .where("status", "==", "waiting")
+            .where(filter=FieldFilter("centre_id", "==", centre_id))
+            .where(filter=FieldFilter("status", "==", "waiting"))
         )
-        return sum(1 for _ in query.stream())
+        return self._count(query)
 
     def resolve(
         self, queue_id: str, farmer_id: str, new_status: str, resolved_at: datetime

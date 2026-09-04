@@ -1,8 +1,10 @@
 """Dynamic Queue system business logic (see app/schemas/queue.py)."""
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date as date_type
 from datetime import datetime
+from threading import BoundedSemaphore
 
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError, NotFoundError
@@ -12,6 +14,8 @@ from app.schemas.queue import AVERAGE_SERVICE_MINUTES, QueueCentreStatusOut, Que
 from app.services.slot_service import PROCUREMENT_CENTRE_TIMEZONE
 
 logger = logging.getLogger("app.queue")
+_notification_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="queue-sms")
+_notification_slots = BoundedSemaphore(16)
 
 
 def _to_out(repo: QueueRepository, record: dict) -> QueueEntryOut:
@@ -19,7 +23,7 @@ def _to_out(repo: QueueRepository, record: dict) -> QueueEntryOut:
     out = dict(record)
     out["token_number"] = f"{record['sequence_number']:03d}"
     if record.get("status") == "waiting":
-        ahead = repo.count_waiting_ahead(record["centre_id"], record["joined_at"])
+        ahead = repo.count_waiting_ahead(record["centre_id"], record["sequence_number"])
         out["people_ahead"] = ahead
         out["position"] = ahead + 1
         out["estimated_wait_minutes"] = ahead * AVERAGE_SERVICE_MINUTES
@@ -45,6 +49,25 @@ def _notify_check_in(farmer_repo: FarmerRepository, record: dict) -> None:
         )
     except Exception:  # pragma: no cover - notification is best-effort only
         logger.exception("Failed to send check-in SMS")
+
+
+def _dispatch_check_in_notification(farmer_repo: FarmerRepository, record: dict) -> None:
+    """Submit best-effort SMS delivery to the bounded process worker pool."""
+    if not _notification_slots.acquire(blocking=False):
+        logger.warning("Check-in SMS skipped: worker queue is full")
+        return
+
+    def notify_and_release() -> None:
+        try:
+            _notify_check_in(farmer_repo, record)
+        finally:
+            _notification_slots.release()
+
+    try:
+        _notification_executor.submit(notify_and_release)
+    except RuntimeError:  # pragma: no cover - only during interpreter shutdown
+        _notification_slots.release()
+        logger.warning("Check-in SMS worker is unavailable")
 
 
 def check_in(
@@ -85,7 +108,7 @@ def check_in(
     if record is None:
         raise ConflictError("You already have an active queue entry, or this booking already checked in")
 
-    _notify_check_in(farmer_repo, record)
+    _dispatch_check_in_notification(farmer_repo, record)
     return _to_out(queue_repo, record)
 
 
