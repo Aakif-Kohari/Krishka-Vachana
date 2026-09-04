@@ -24,12 +24,14 @@ FARMER_PAYLOAD = {
 
 
 def _register_farmer(client, auth_headers):
+    """Register a farmer profile for OTP testing."""
     r = client.post("/api/v1/farmers/register", json=FARMER_PAYLOAD, headers=auth_headers)
     assert r.status_code == 201
     return r.json()
 
 
 def _request_and_capture_code(client, auth_headers, caplog) -> str:
+    """Request an OTP and extract the code from the dry-run log message."""
     with caplog.at_level(logging.INFO, logger="app.otp"):
         r = client.post("/api/v1/farmers/me/phone/otp/request", headers=auth_headers)
     assert r.status_code == 200, r.json()

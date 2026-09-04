@@ -32,12 +32,14 @@ FARMER_PAYLOAD = {
 
 
 def _register_farmer(client, auth_headers):
+    """Register a farmer profile for queue testing."""
     r = client.post("/api/v1/farmers/register", json=FARMER_PAYLOAD, headers=auth_headers)
     assert r.status_code == 201
     return r.json()
 
 
 def _book_slot(client, auth_headers, seeded_centre_id, slot_date=TODAY, slot_window="08:00-10:00"):
+    """Book a slot for queue check-in testing."""
     r = client.post(
         "/api/v1/bookings",
         json={"centre_id": seeded_centre_id, "slot_date": slot_date, "slot_window": slot_window},
@@ -48,6 +50,7 @@ def _book_slot(client, auth_headers, seeded_centre_id, slot_date=TODAY, slot_win
 
 
 def _check_in(client, auth_headers, booking_id):
+    """Check in to a queue using a booking ID."""
     return client.post("/api/v1/queue/check-in", json={"booking_id": booking_id}, headers=auth_headers)
 
 

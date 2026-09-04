@@ -22,6 +22,7 @@ logger = logging.getLogger("app.otp")
 
 
 def _hash_code(code: str) -> str:
+    """Hash an OTP code using SHA-256 for secure storage."""
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
@@ -93,6 +94,7 @@ def verify_otp(settings: Settings, farmer_repo: FarmerRepository, farmer_id: str
 
 
 def _clear_otp(farmer_repo: FarmerRepository, farmer_id: str) -> None:
+    """Clear the OTP challenge fields from a farmer's record."""
     farmer_repo.update(
         farmer_id,
         {"phone_otp_hash": None, "phone_otp_expires_at": None, "phone_otp_attempts": 0},
