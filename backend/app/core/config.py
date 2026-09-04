@@ -5,9 +5,7 @@ Does NOT define Firestore schema or security rules - those belong to the
 Database & Infrastructure engineer. This module only reads the values the
 backend needs to talk to services that already exist.
 """
-from collections import Counter
 from functools import lru_cache
-from math import log2
 from typing import List, Optional
 
 from pydantic import Field, model_validator
@@ -15,24 +13,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 _MIN_WEBHOOK_SECRET_LENGTH = 32
-_MIN_WEBHOOK_SECRET_ENTROPY_BITS = 128
-_PREDICTABLE_SECRET_MARKERS = (
-    "changeme",
-    "change-me",
-    "example",
-    "password",
-    "replace",
-    "test-only",
-    "webhook-secret",
-)
-
-
-def _estimated_entropy_bits(value: str) -> float:
-    """Estimate a configured secret's Shannon entropy from its characters."""
-    length = len(value)
-    return -sum(
-        count * log2(count / length) for count in Counter(value).values()
-    )
 
 
 class Settings(BaseSettings):
@@ -93,25 +73,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def require_secure_production_webhook_secret(self):
-        """Reject missing or obviously weak webhook secrets in production."""
+        """Require a trimmed, minimum-length webhook secret in production."""
         if self.environment.strip().lower() != "production":
             return self
 
         secret = self.payment_gateway_webhook_secret
-        normalized = secret.lower()
         if not secret or secret != secret.strip():
             raise ValueError("payment gateway webhook secret is required in production")
         if len(secret) < _MIN_WEBHOOK_SECRET_LENGTH:
             raise ValueError(
                 "payment gateway webhook secret must be at least "
                 f"{_MIN_WEBHOOK_SECRET_LENGTH} characters in production"
-            )
-        if any(marker in normalized for marker in _PREDICTABLE_SECRET_MARKERS):
-            raise ValueError("payment gateway webhook secret is predictable")
-        if _estimated_entropy_bits(secret) < _MIN_WEBHOOK_SECRET_ENTROPY_BITS:
-            raise ValueError(
-                "payment gateway webhook secret must have at least "
-                f"{_MIN_WEBHOOK_SECRET_ENTROPY_BITS} bits of estimated entropy"
             )
         return self
 

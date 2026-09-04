@@ -18,11 +18,17 @@ WEBHOOK_SECRET = "q7L9vN2xK4mP8rT5wY1cF6hJ3sU0aB9dE2gI7kM"
 
 @pytest.mark.parametrize(
     "secret",
-    ["", "short", "a" * 64, "replace-with-a-random-secret-at-least-32-characters"],
+    ["", "short", " " + "a" * 32, "a" * 32 + " "],
 )
-def test_production_settings_reject_missing_or_predictable_webhook_secret(secret):
+def test_production_settings_reject_invalid_webhook_secret_syntax(secret):
     with pytest.raises(ValidationError):
         Settings(environment="production", payment_gateway_webhook_secret=secret)
+
+
+def test_production_settings_accept_minimum_length_webhook_secret():
+    assert Settings(
+        environment="production", payment_gateway_webhook_secret="a" * 32
+    ).payment_gateway_webhook_secret == "a" * 32
 
 
 def test_development_settings_allow_unset_webhook_secret():

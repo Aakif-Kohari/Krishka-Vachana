@@ -9,6 +9,7 @@ from app.repositories.firestore import (
     ACTIVE_FARMER_QUEUE_COLLECTION,
     ACTIVE_SLOT_BOOKINGS_COLLECTION,
     CENTRES_COLLECTION,
+    CROPS_COLLECTION,
     FARMERS_COLLECTION,
     PAYMENT_BOOKING_RESERVATIONS_COLLECTION,
     PAYMENTS_COLLECTION,
@@ -17,6 +18,7 @@ from app.repositories.firestore import (
     SLOT_BOOKINGS_COLLECTION,
     SLOT_CAPACITY_COUNTERS_COLLECTION,
     FirestoreCentreRepository,
+    FirestoreCropRepository,
     FirestoreFarmerRepository,
     FirestorePaymentRepository,
     FirestoreQueueRepository,
@@ -42,6 +44,37 @@ _VALID_CENTRE_DATA = {
     "capacity_per_slot": 10,
     "created_at": "2026-01-01T00:00:00+00:00",
 }
+
+
+@pytest.mark.parametrize(
+    ("repository_class", "collection_name", "cursor_field"),
+    [
+        (FirestoreCropRepository, CROPS_COLLECTION, "crop_id"),
+        (FirestoreSlotBookingRepository, SLOT_BOOKINGS_COLLECTION, "booking_id"),
+        (FirestorePaymentRepository, PAYMENTS_COLLECTION, "payment_id"),
+    ],
+)
+def test_history_repositories_apply_cursor_and_limit(
+    repository_class, collection_name, cursor_field
+):
+    client = MagicMock()
+    collection = client.collection.return_value
+    filtered_query = collection.where.return_value
+    ordered_query = filtered_query.order_by.return_value
+    cursor_query = ordered_query.start_after.return_value
+    limited_query = cursor_query.limit.return_value
+    limited_query.stream.return_value = [_snapshot(exists=True, data={cursor_field: "next"})]
+
+    records = repository_class(client).list_by_farmer(
+        "farmer-id", limit=3, cursor="current"
+    )
+
+    assert records == [{cursor_field: "next"}]
+    client.collection.assert_called_once_with(collection_name)
+    collection.where.assert_called_once_with("farmer_id", "==", "farmer-id")
+    filtered_query.order_by.assert_called_once_with(cursor_field)
+    ordered_query.start_after.assert_called_once_with({cursor_field: "current"})
+    cursor_query.limit.assert_called_once_with(3)
 
 
 def test_centre_list_maps_document_id_and_filters_case_insensitively():

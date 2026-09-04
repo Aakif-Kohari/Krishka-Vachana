@@ -265,9 +265,19 @@ class FirestoreCropRepository(CropRepository):
         ref.set({"crop_id": crop_id, **data})
         return {"crop_id": crop_id, **data}
 
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all crops registered by a farmer from Firestore."""
-        query = self._client.collection(CROPS_COLLECTION).where("farmer_id", "==", farmer_id)
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's crops."""
+        query = (
+            self._client.collection(CROPS_COLLECTION)
+            .where("farmer_id", "==", farmer_id)
+            .order_by("crop_id")
+        )
+        if cursor is not None:
+            query = query.start_after({"crop_id": cursor})
+        if limit is not None:
+            query = query.limit(limit)
         return [doc.to_dict() for doc in query.stream()]
 
 
@@ -432,9 +442,19 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
 
         return create(transaction)
 
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all bookings for a farmer from Firestore."""
-        query = self._client.collection(SLOT_BOOKINGS_COLLECTION).where("farmer_id", "==", farmer_id)
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's bookings."""
+        query = (
+            self._client.collection(SLOT_BOOKINGS_COLLECTION)
+            .where("farmer_id", "==", farmer_id)
+            .order_by("booking_id")
+        )
+        if cursor is not None:
+            query = query.start_after({"booking_id": cursor})
+        if limit is not None:
+            query = query.limit(limit)
         return [doc.to_dict() for doc in query.stream()]
 
     def cancel(self, booking_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
@@ -802,8 +822,10 @@ class FirestorePaymentRepository(PaymentRepository):
 
         return create_or_get(transaction)
 
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List payments associated with a farmer.
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's payments.
         
         Parameters:
             farmer_id (str): Identifier of the farmer whose payments to retrieve.
@@ -811,5 +833,13 @@ class FirestorePaymentRepository(PaymentRepository):
         Returns:
             List[Dict[str, Any]]: Payment records associated with the farmer.
         """
-        query = self._client.collection(PAYMENTS_COLLECTION).where("farmer_id", "==", farmer_id)
+        query = (
+            self._client.collection(PAYMENTS_COLLECTION)
+            .where("farmer_id", "==", farmer_id)
+            .order_by("payment_id")
+        )
+        if cursor is not None:
+            query = query.start_after({"payment_id": cursor})
+        if limit is not None:
+            query = query.limit(limit)
         return [doc.to_dict() for doc in query.stream()]

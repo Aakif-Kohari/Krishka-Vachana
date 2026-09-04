@@ -97,8 +97,10 @@ class CropRepository(ABC):
         ...
 
     @abstractmethod
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all crops registered by a farmer."""
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's crops."""
         ...
 
 
@@ -150,8 +152,10 @@ class SlotBookingRepository(ABC):
         ...
 
     @abstractmethod
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all bookings for a farmer."""
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's bookings."""
         ...
 
     @abstractmethod
@@ -303,7 +307,9 @@ class PaymentRepository(ABC):
         ...
 
     @abstractmethod
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
         List all payments associated with a farmer.
         
@@ -311,6 +317,6 @@ class PaymentRepository(ABC):
             farmer_id (str): Identifier of the farmer.
         
         Returns:
-            List[Dict[str, Any]]: Payment records for the farmer.
+            List[Dict[str, Any]]: A stable, optionally bounded page of payment records.
         """
         ...

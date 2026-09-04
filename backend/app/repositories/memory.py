@@ -179,10 +179,18 @@ class InMemoryCropRepository(CropRepository):
             self._data[crop_id] = record
             return dict(record)
 
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all crops registered by a farmer."""
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's crops."""
         with self._lock:
-            return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
+            records = sorted(
+                (r for r in self._data.values() if r.get("farmer_id") == farmer_id),
+                key=lambda r: r["crop_id"],
+            )
+            if cursor is not None:
+                records = [r for r in records if r["crop_id"] > cursor]
+            return [dict(r) for r in records[:limit]] if limit is not None else [dict(r) for r in records]
 
 
 # Sample procurement centres for local dev/tests, seeded until the
@@ -293,10 +301,18 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
             self._active_booking_ids[active_key] = booking_id
             return dict(record)
 
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all bookings for a farmer."""
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's bookings."""
         with self._lock:
-            return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
+            records = sorted(
+                (r for r in self._data.values() if r.get("farmer_id") == farmer_id),
+                key=lambda r: r["booking_id"],
+            )
+            if cursor is not None:
+                records = [r for r in records if r["booking_id"] > cursor]
+            return [dict(r) for r in records[:limit]] if limit is not None else [dict(r) for r in records]
 
     def cancel(self, booking_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -517,10 +533,18 @@ class InMemoryPaymentRepository(PaymentRepository):
             self._payment_ids_by_booking[data["booking_id"]] = payment_id
             return dict(record)
 
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all payments for a farmer."""
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's payments."""
         with self._lock:
-            return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
+            records = sorted(
+                (r for r in self._data.values() if r.get("farmer_id") == farmer_id),
+                key=lambda r: r["payment_id"],
+            )
+            if cursor is not None:
+                records = [r for r in records if r["payment_id"] > cursor]
+            return [dict(r) for r in records[:limit]] if limit is not None else [dict(r) for r in records]
 
 
 # Process-wide singletons so the fallback store behaves consistently across

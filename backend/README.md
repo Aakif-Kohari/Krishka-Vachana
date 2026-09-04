@@ -202,12 +202,19 @@ docker run -p 8000:8000 \
   -e ENVIRONMENT=production \
   -e ENABLE_DOCS=false \
   -e AADHAAR_HMAC_SECRET_NAME=projects/PROJECT_ID/secrets/aadhaar-hmac-key/versions/1 \
+  -e PAYMENT_GATEWAY_WEBHOOK_SECRET \
   -e FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase.json \
   -e GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcp-service-account.json \
   -v /path/to/firebase-service-account.json:/secrets/firebase.json:ro \
   -v /path/to/gcp-service-account.json:/secrets/gcp-service-account.json:ro \
   kisansetu-backend
 ```
+
+Generate `PAYMENT_GATEWAY_WEBHOOK_SECRET` once with a cryptographically
+secure generator such as `openssl rand -base64 48`, store it in the hosting
+platform's managed secret store, and inject it under that environment-variable
+name. Do not generate it at application startup: the gateway and all backend
+instances must share the same stable value.
 
 `FIREBASE_SERVICE_ACCOUNT_PATH` only configures Firebase Admin (Firestore /
 Auth) - it does nothing for Secret Manager. `app/core/secrets.py` creates a

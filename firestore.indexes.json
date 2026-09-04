@@ -1,6 +1,48 @@
 {
   "indexes": [
     {
+      "collectionGroup": "crops",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "farmer_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "crop_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "slot_bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "farmer_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "booking_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "farmer_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "payment_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "queue_entries",
       "queryScope": "COLLECTION",
       "fields": [
