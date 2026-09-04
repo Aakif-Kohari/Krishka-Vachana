@@ -53,6 +53,7 @@ ACTIVE_BOOKING_QUEUE_COLLECTION = "active_booking_queue_entries"
 # SLOT_CAPACITY_COUNTERS_COLLECTION above. Doc id: f"{centre_id}_{date}".
 QUEUE_DAILY_COUNTERS_COLLECTION = "queue_daily_counters"
 PAYMENTS_COLLECTION = "payments"
+PAYMENT_BOOKING_RESERVATIONS_COLLECTION = "payment_booking_reservations"
 
 
 class FirestoreFarmerRepository(FarmerRepository):
@@ -66,6 +67,22 @@ class FirestoreFarmerRepository(FarmerRepository):
         """Retrieve a farmer record by ID from Firestore."""
         doc = self._client.collection(FARMERS_COLLECTION).document(farmer_id).get()
         return doc.to_dict() if doc.exists else None
+
+    def is_cluster_delegate_authorized(
+        self, delegate_id: str, farmer_ids: List[str]
+    ) -> bool:
+        """Check delegate grants stored on every requested farmer document."""
+        if not farmer_ids:
+            return False
+        farmer_collection = self._client.collection(FARMERS_COLLECTION)
+        for farmer_id in farmer_ids:
+            snapshot = farmer_collection.document(farmer_id).get()
+            if not snapshot.exists:
+                return False
+            grants = snapshot.to_dict().get("authorized_cluster_delegate_ids")
+            if not isinstance(grants, list) or delegate_id not in grants:
+                return False
+        return True
 
     def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]:
         """Retrieve a farmer record by Aadhaar hash from Firestore."""
@@ -731,9 +748,53 @@ class FirestorePaymentRepository(PaymentRepository):
         Returns:
         	Dict[str, Any]: The created payment record, including its identifier.
         """
-        ref = self._client.collection(PAYMENTS_COLLECTION).document(payment_id)
-        ref.set({"payment_id": payment_id, **data})
-        return {"payment_id": payment_id, **data}
+        return self.create_or_get_by_booking_id(payment_id, data)
+
+    def create_or_get_by_booking_id(
+        self, payment_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Atomically reserve a booking ID and create or return its payment."""
+        booking_id = data["booking_id"]
+        reservation_id = hashlib.sha256(booking_id.encode("utf-8")).hexdigest()
+        payment_collection = self._client.collection(PAYMENTS_COLLECTION)
+        reservation_ref = self._client.collection(
+            PAYMENT_BOOKING_RESERVATIONS_COLLECTION
+        ).document(reservation_id)
+        payment_ref = payment_collection.document(payment_id)
+        existing_query = payment_collection.where("booking_id", "==", booking_id).limit(1)
+        transaction = self._client.transaction()
+
+        @firestore.transactional
+        def create_or_get(transaction) -> Dict[str, Any]:
+            reservation = reservation_ref.get(transaction=transaction)
+            if reservation.exists:
+                existing_id = reservation.to_dict()["payment_id"]
+                existing = payment_collection.document(existing_id).get(
+                    transaction=transaction
+                )
+                if not existing.exists:
+                    raise RuntimeError("Payment booking reservation is inconsistent")
+                return existing.to_dict()
+
+            legacy = next(transaction.get(existing_query), None)
+            if legacy is not None:
+                existing_record = legacy.to_dict()
+                existing_id = existing_record.get("payment_id", legacy.id)
+                transaction.create(
+                    reservation_ref,
+                    {"booking_id": booking_id, "payment_id": existing_id},
+                )
+                return {"payment_id": existing_id, **existing_record}
+
+            record = {"payment_id": payment_id, **data}
+            transaction.create(payment_ref, record)
+            transaction.create(
+                reservation_ref,
+                {"booking_id": booking_id, "payment_id": payment_id},
+            )
+            return record
+
+        return create_or_get(transaction)
 
     def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
         """List payments associated with a farmer.

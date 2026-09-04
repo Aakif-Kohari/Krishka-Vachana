@@ -101,8 +101,9 @@ built to be deployable as-is rather than a throwaway prototype:
 
 ## API surface (Phase 1 + 2 + 3)
 
-All endpoints are versioned under `/api/v1` and (except health) require
-`Authorization: Bearer <firebase-id-token>`.
+All endpoints are versioned under `/api/v1`. Farmer endpoints require
+`Authorization: Bearer <firebase-id-token>`; health endpoints are public, and
+the payment webhook authenticates with `X-Payment-Signature` instead.
 
 | Method | Path | Description |
 |---|---|---|
@@ -130,7 +131,8 @@ All endpoints are versioned under `/api/v1` and (except health) require
 | GET | `/api/v1/queue/centre/{centre_id}` | Aggregate, identity-free live queue status for a centre |
 | GET | `/api/v1/queue/{queue_id}/token` | Printable token page (HTML, not in the OpenAPI schema - see below) |
 | POST | `/api/v1/bookings/cluster` | Book a Smart Slot for a village cluster (atomic batch reservation) |
-| POST | `/api/v1/payments` | Record a payment against a booking (simulates gateway webhook) |
+| POST | `/api/v1/payments` | Record a mock payment against a booking (development only) |
+| POST | `/api/v1/payments/webhook` | Record a signature-verified gateway payment |
 | GET | `/api/v1/payments/me` | List all payments for the authenticated farmer |
 | GET | `/api/v1/farmers/me/history` | Aggregated historical record (crops, bookings, payments) |
 

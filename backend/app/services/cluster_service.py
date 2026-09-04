@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List
 
-from app.core.exceptions import AppError, ConflictError, NotFoundError
+from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.repositories.base import CentreRepository, FarmerRepository, SlotBookingRepository
 from app.schemas.cluster import ClusterBookingCreate, ClusterBookingOut
 
@@ -19,6 +19,7 @@ logger = logging.getLogger("app.services.cluster_service")
 
 def create_cluster_booking(
     cluster_data: ClusterBookingCreate,
+    farmer_uid: str,
     farmer_repo: FarmerRepository,
     booking_repo: SlotBookingRepository,
     centre_repo: CentreRepository,
@@ -28,6 +29,7 @@ def create_cluster_booking(
     
     Parameters:
     	cluster_data (ClusterBookingCreate): Cluster details, including the farmers, village, centre, date, and slot window.
+	farmer_uid (str): Authenticated caller creating the cluster booking.
     	farmer_repo (FarmerRepository): Repository used to verify farmer records.
     	booking_repo (SlotBookingRepository): Repository used to reserve the group’s slot capacity.
     	centre_repo (CentreRepository): Repository used to verify the booking centre and retrieve its slot capacity.
@@ -47,6 +49,14 @@ def create_cluster_booking(
             raise NotFoundError(f"Farmer {fid} not found")
         if farmer.get("village") != cluster_data.village:
             raise AppError(f"Farmer {fid} does not belong to village {cluster_data.village}")
+
+    if (
+        farmer_uid not in cluster_data.farmer_ids
+        and not farmer_repo.is_cluster_delegate_authorized(
+            farmer_uid, cluster_data.farmer_ids
+        )
+    ):
+        raise ForbiddenError("Not authorized to book for this farmer cluster")
 
     # 2. Verify centre exists
     centre = centre_repo.get(cluster_data.centre_id)

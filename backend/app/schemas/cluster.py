@@ -8,7 +8,7 @@ same village and atomically reserves capacity for the entire group.
 from datetime import date, datetime
 from typing import List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ClusterBookingCreate(BaseModel):
@@ -24,6 +24,14 @@ class ClusterBookingCreate(BaseModel):
         max_length=50,
         description="List of farmer UIDs in the cluster; all must belong to the claimed village",
     )
+
+    @field_validator("farmer_ids")
+    @classmethod
+    def require_unique_farmer_ids(cls, farmer_ids: List[str]) -> List[str]:
+        """Reject duplicate members before attempting an atomic reservation."""
+        if len(farmer_ids) != len(set(farmer_ids)):
+            raise ValueError("farmer_ids must contain unique farmer IDs")
+        return farmer_ids
 
 
 class ClusterBookingOut(BaseModel):

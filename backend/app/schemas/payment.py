@@ -7,6 +7,7 @@ pattern that can be swapped for a real signature-verified gateway later.
 """
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,11 +21,17 @@ class PaymentStatus(str, Enum):
 
 
 class PaymentCreate(BaseModel):
-    """Schema for recording a payment against a booking (simulating a gateway webhook)."""
+    """Schema for recording a development-only mock payment against a booking."""
 
     booking_id: str = Field(..., min_length=1, description="The slot booking ID being paid for")
-    amount: float = Field(..., gt=0, description="Payment amount in INR")
+    amount_paise: int = Field(..., gt=0, strict=True, description="Payment amount in paise")
     transaction_ref: str = Field(..., min_length=5, description="Gateway transaction reference ID")
+
+
+class PaymentWebhookPayload(PaymentCreate):
+    """Signature-verified successful-payment event sent by the gateway."""
+
+    event: Literal["payment.success"]
 
 
 class PaymentOut(BaseModel):
@@ -33,7 +40,7 @@ class PaymentOut(BaseModel):
     payment_id: str
     farmer_id: str
     booking_id: str
-    amount: float
+    amount_paise: int
     transaction_ref: str
     status: PaymentStatus
     processed_at: datetime

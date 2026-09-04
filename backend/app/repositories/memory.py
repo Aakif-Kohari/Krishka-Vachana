@@ -34,6 +34,21 @@ class InMemoryFarmerRepository(FarmerRepository):
             record = self._data.get(farmer_id)
             return dict(record) if record else None
 
+    def is_cluster_delegate_authorized(
+        self, delegate_id: str, farmer_ids: List[str]
+    ) -> bool:
+        """Check delegate grants stored on every requested farmer record."""
+        with self._lock:
+            if not farmer_ids:
+                return False
+            for farmer_id in farmer_ids:
+                grants = self._data.get(farmer_id, {}).get(
+                    "authorized_cluster_delegate_ids"
+                )
+                if not isinstance(grants, list) or delegate_id not in grants:
+                    return False
+            return True
+
     def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]:
         """Retrieve a farmer record by Aadhaar hash."""
         with self._lock:
@@ -460,6 +475,7 @@ class InMemoryPaymentRepository(PaymentRepository):
     def __init__(self) -> None:
         """Initialize an empty in-memory payment repository with thread-safe locking."""
         self._data: Dict[str, Dict[str, Any]] = {}
+        self._payment_ids_by_booking: Dict[str, str] = {}
         self._lock = threading.Lock()
 
     def get(self, payment_id: str) -> Optional[Dict[str, Any]]:
@@ -470,10 +486,9 @@ class InMemoryPaymentRepository(PaymentRepository):
     def get_by_booking_id(self, booking_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a payment record by its associated booking ID."""
         with self._lock:
-            for record in self._data.values():
-                if record.get("booking_id") == booking_id:
-                    return dict(record)
-            return None
+            payment_id = self._payment_ids_by_booking.get(booking_id)
+            record = self._data.get(payment_id) if payment_id else None
+            return dict(record) if record else None
 
     def create(self, payment_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -486,9 +501,20 @@ class InMemoryPaymentRepository(PaymentRepository):
         Returns:
         	Dict[str, Any]: A copy of the stored payment record.
         """
+        return self.create_or_get_by_booking_id(payment_id, data)
+
+    def create_or_get_by_booking_id(
+        self, payment_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Create or retrieve a booking's payment while holding one lock."""
         with self._lock:
+            existing_id = self._payment_ids_by_booking.get(data["booking_id"])
+            if existing_id is not None:
+                return dict(self._data[existing_id])
+
             record = {"payment_id": payment_id, **data}
             self._data[payment_id] = record
+            self._payment_ids_by_booking[data["booking_id"]] = payment_id
             return dict(record)
 
     def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:

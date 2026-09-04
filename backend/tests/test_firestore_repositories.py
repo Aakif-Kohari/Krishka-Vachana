@@ -8,12 +8,15 @@ from app.repositories.firestore import (
     ACTIVE_SLOT_BOOKINGS_COLLECTION,
     CENTRES_COLLECTION,
     FARMERS_COLLECTION,
+    PAYMENT_BOOKING_RESERVATIONS_COLLECTION,
+    PAYMENTS_COLLECTION,
     QUEUE_DAILY_COUNTERS_COLLECTION,
     QUEUE_ENTRIES_COLLECTION,
     SLOT_BOOKINGS_COLLECTION,
     SLOT_CAPACITY_COUNTERS_COLLECTION,
     FirestoreCentreRepository,
     FirestoreFarmerRepository,
+    FirestorePaymentRepository,
     FirestoreQueueRepository,
     FirestoreSlotBookingRepository,
 )
@@ -330,3 +333,77 @@ def test_firestore_waiting_count_uses_aggregation_and_field_filters():
     ]
     final_query.count.assert_called_once_with(alias="count")
     final_query.stream.assert_not_called()
+
+
+def test_firestore_payment_create_reserves_booking_in_one_transaction(monkeypatch):
+    """Payment creation writes its booking reservation and record atomically."""
+    monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
+    client = MagicMock()
+    transaction = MagicMock()
+    client.transaction.return_value = transaction
+
+    payment_collection = MagicMock()
+    reservation_collection = MagicMock()
+    client.collection.side_effect = {
+        PAYMENTS_COLLECTION: payment_collection,
+        PAYMENT_BOOKING_RESERVATIONS_COLLECTION: reservation_collection,
+    }.__getitem__
+    payment_ref = MagicMock()
+    payment_collection.document.return_value = payment_ref
+    reservation_ref = reservation_collection.document.return_value
+    reservation_ref.get.return_value = _snapshot(exists=False)
+    transaction.get.return_value = iter([])
+    data = {
+        "booking_id": "booking-1",
+        "farmer_id": "farmer-1",
+        "amount_paise": 500000,
+        "transaction_ref": "TXN_001",
+        "status": "success",
+        "processed_at": datetime.now(timezone.utc),
+    }
+
+    result = FirestorePaymentRepository(client).create_or_get_by_booking_id(
+        "payment-1", data
+    )
+
+    assert result == {"payment_id": "payment-1", **data}
+    reservation_ref.get.assert_called_once_with(transaction=transaction)
+    assert transaction.create.call_count == 2
+    transaction.commit.assert_not_called()
+
+
+def test_firestore_payment_duplicate_returns_reserved_payment(monkeypatch):
+    """A repeated booking delivery returns the reserved existing payment."""
+    monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
+    client = MagicMock()
+    transaction = MagicMock()
+    client.transaction.return_value = transaction
+
+    payment_collection = MagicMock()
+    reservation_collection = MagicMock()
+    client.collection.side_effect = {
+        PAYMENTS_COLLECTION: payment_collection,
+        PAYMENT_BOOKING_RESERVATIONS_COLLECTION: reservation_collection,
+    }.__getitem__
+    reservation_collection.document.return_value.get.return_value = _snapshot(
+        exists=True, data={"booking_id": "booking-1", "payment_id": "payment-existing"}
+    )
+    existing_record = {
+        "payment_id": "payment-existing",
+        "booking_id": "booking-1",
+        "farmer_id": "farmer-1",
+        "amount_paise": 500000,
+        "transaction_ref": "TXN_001",
+        "status": "success",
+        "processed_at": datetime.now(timezone.utc),
+    }
+    payment_collection.document.return_value.get.return_value = _snapshot(
+        exists=True, data=existing_record
+    )
+
+    result = FirestorePaymentRepository(client).create_or_get_by_booking_id(
+        "payment-new", {**existing_record, "transaction_ref": "TXN_002"}
+    )
+
+    assert result == existing_record
+    transaction.create.assert_not_called()

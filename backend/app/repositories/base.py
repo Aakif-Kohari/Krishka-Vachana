@@ -32,6 +32,13 @@ class FarmerRepository(ABC):
         ...
 
     @abstractmethod
+    def is_cluster_delegate_authorized(
+        self, delegate_id: str, farmer_ids: List[str]
+    ) -> bool:
+        """Return whether every requested farmer authorizes this cluster delegate."""
+        ...
+
+    @abstractmethod
     def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]:
         """Retrieve a farmer record by Aadhaar hash."""
         ...
@@ -282,6 +289,13 @@ class PaymentRepository(ABC):
         Returns:
             Dict[str, Any]: The created payment record.
         """
+        ...
+
+    @abstractmethod
+    def create_or_get_by_booking_id(
+        self, payment_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Atomically create a payment, or return the existing payment for its booking."""
         ...
 
     @abstractmethod

@@ -40,7 +40,7 @@ def test_get_history_aggregates_data(client: TestClient, auth_headers, crop_repo
         "payment_id": "p1",
         "farmer_id": "test-farmer-uid-123", 
         "booking_id": "b1", 
-        "amount": 5000.0, 
+        "amount_paise": 500000,
         "transaction_ref": "TXN_12345",
         "status": "success",
         "processed_at": now

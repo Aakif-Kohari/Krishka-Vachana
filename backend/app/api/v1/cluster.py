@@ -23,4 +23,6 @@ def create_cluster_booking_endpoint(
     centre_repo: CentreRepository = Depends(get_centre_repository),
 ) -> ClusterBookingOut:
     """Book a Smart Slot for a cluster of farmers from the same village."""
-    return cluster_service.create_cluster_booking(cluster_data, farmer_repo, booking_repo, centre_repo)
+    return cluster_service.create_cluster_booking(
+        cluster_data, farmer_uid, farmer_repo, booking_repo, centre_repo
+    )
