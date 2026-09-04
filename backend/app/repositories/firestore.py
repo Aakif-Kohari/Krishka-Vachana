@@ -24,6 +24,7 @@ from app.repositories.base import (
     CropRepository,
     FarmerRepository,
     OtpVerificationResult,
+    PaymentRepository,
     QueueRepository,
     SlotBookingRepository,
 )
@@ -51,6 +52,7 @@ ACTIVE_BOOKING_QUEUE_COLLECTION = "active_booking_queue_entries"
 # per-centre token sequence number - same pattern as
 # SLOT_CAPACITY_COUNTERS_COLLECTION above. Doc id: f"{centre_id}_{date}".
 QUEUE_DAILY_COUNTERS_COLLECTION = "queue_daily_counters"
+PAYMENTS_COLLECTION = "payments"
 
 
 class FirestoreFarmerRepository(FarmerRepository):
@@ -448,6 +450,61 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
         return do_cancel(transaction)
 
 
+    def create_batch_atomic(
+        self, booking_ids: List[str], capacity: int, data_list: List[Dict[str, Any]]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Atomically create a batch of bookings in a Firestore transaction."""
+        if len(booking_ids) != len(data_list) or not booking_ids:
+            return None
+
+        first_data = data_list[0]
+        slot_date_iso = first_data["slot_date"] if isinstance(first_data["slot_date"], str) else first_data["slot_date"].isoformat()
+        
+        counter_ref = self._client.collection(SLOT_CAPACITY_COUNTERS_COLLECTION).document(
+            _slot_counter_doc_id(first_data["centre_id"], slot_date_iso, first_data["slot_window"])
+        )
+        
+        booking_refs = [self._client.collection(SLOT_BOOKINGS_COLLECTION).document(bid) for bid in booking_ids]
+        active_refs = [
+            self._client.collection(ACTIVE_SLOT_BOOKINGS_COLLECTION).document(
+                _active_booking_doc_id(d["farmer_id"], d["centre_id"], slot_date_iso, d["slot_window"])
+            )
+            for d in data_list
+        ]
+
+        transaction = self._client.transaction()
+
+        @firestore.transactional
+        def create_batch(transaction) -> Optional[List[Dict[str, Any]]]:
+            counter_doc = counter_ref.get(transaction=transaction)
+            current = counter_doc.to_dict().get("count", 0) if counter_doc.exists else 0
+            if current + len(booking_ids) > capacity:
+                return None
+
+            for bref, aref in zip(booking_refs, active_refs):
+                if bref.get(transaction=transaction).exists:
+                    return None
+                if aref.get(transaction=transaction).exists:
+                    return None
+
+            transaction.set(counter_ref, {"count": current + len(booking_ids)}, merge=True)
+            
+            created_records = []
+            for bid, data, bref, aref in zip(booking_ids, data_list, booking_refs, active_refs):
+                record = {"booking_id": bid, **data}
+                transaction.create(bref, record)
+                transaction.create(aref, {
+                    "booking_id": bid, "farmer_id": data["farmer_id"],
+                    "centre_id": data["centre_id"], "slot_date": slot_date_iso,
+                    "slot_window": data["slot_window"],
+                })
+                created_records.append(record)
+                
+            return created_records
+
+        return create_batch(transaction)
+
+
 def _queue_daily_counter_doc_id(centre_id: str, queue_date: str) -> str:
     """Generate a document ID for a centre's daily queue token-sequence counter."""
     return f"{centre_id}_{queue_date}"
@@ -582,3 +639,28 @@ class FirestoreQueueRepository(QueueRepository):
             return record
 
         return do_resolve(transaction)
+
+
+class FirestorePaymentRepository(PaymentRepository):
+    """Firestore-backed implementation of PaymentRepository."""
+
+    def __init__(self, client) -> None:
+        self._client = client
+
+    def get(self, payment_id: str) -> Optional[Dict[str, Any]]:
+        doc = self._client.collection(PAYMENTS_COLLECTION).document(payment_id).get()
+        return doc.to_dict() if doc.exists else None
+
+    def get_by_booking_id(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        query = self._client.collection(PAYMENTS_COLLECTION).where("booking_id", "==", booking_id).limit(1)
+        doc = next(iter(query.stream()), None)
+        return doc.to_dict() if doc is not None else None
+
+    def create(self, payment_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        ref = self._client.collection(PAYMENTS_COLLECTION).document(payment_id)
+        ref.set({"payment_id": payment_id, **data})
+        return {"payment_id": payment_id, **data}
+
+    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
+        query = self._client.collection(PAYMENTS_COLLECTION).where("farmer_id", "==", farmer_id)
+        return [doc.to_dict() for doc in query.stream()]

@@ -13,6 +13,7 @@ from app.repositories.base import (
     CropRepository,
     FarmerRepository,
     OtpVerificationResult,
+    PaymentRepository,
     QueueRepository,
     SlotBookingRepository,
 )
@@ -300,6 +301,40 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
                 record["status"] = "cancelled"
             return dict(record)
 
+    def create_batch_atomic(
+        self, booking_ids: List[str], capacity: int, data_list: List[Dict[str, Any]]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Atomically create a batch of bookings if capacity is available."""
+        with self._lock:
+            if len(booking_ids) != len(data_list) or not booking_ids:
+                return None
+                
+            first_data = data_list[0]
+            slot_key = _slot_key(first_data["centre_id"], first_data["slot_date"], first_data["slot_window"])
+            current = self._active_counts.get(slot_key, 0)
+            
+            if current + len(booking_ids) > capacity:
+                return None
+
+            created_records = []
+            for bid, data in zip(booking_ids, data_list):
+                if bid in self._data:
+                    return None
+                active_key = (data["farmer_id"], *slot_key)
+                if active_key in self._active_booking_ids:
+                    return None
+            
+            # All checks passed, commit
+            for bid, data in zip(booking_ids, data_list):
+                record = {"booking_id": bid, **data}
+                self._data[bid] = record
+                active_key = (data["farmer_id"], *slot_key)
+                self._active_booking_ids[active_key] = bid
+                created_records.append(dict(record))
+                
+            self._active_counts[slot_key] = current + len(booking_ids)
+            return created_records
+
 
 class InMemoryQueueRepository(QueueRepository):
     """In-memory implementation of QueueRepository for development and testing."""
@@ -400,6 +435,40 @@ class InMemoryQueueRepository(QueueRepository):
             return dict(record)
 
 
+class InMemoryPaymentRepository(PaymentRepository):
+    """In-memory implementation of PaymentRepository for development and testing."""
+
+    def __init__(self) -> None:
+        """Initialize an empty in-memory payment repository with thread-safe locking."""
+        self._data: Dict[str, Dict[str, Any]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, payment_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a payment record by ID."""
+        with self._lock:
+            return dict(self._data.get(payment_id)) if payment_id in self._data else None
+
+    def get_by_booking_id(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a payment record by its associated booking ID."""
+        with self._lock:
+            for record in self._data.values():
+                if record.get("booking_id") == booking_id:
+                    return dict(record)
+            return None
+
+    def create(self, payment_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new payment record."""
+        with self._lock:
+            record = {"payment_id": payment_id, **data}
+            self._data[payment_id] = record
+            return dict(record)
+
+    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
+        """List all payments for a farmer."""
+        with self._lock:
+            return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
+
+
 # Process-wide singletons so the fallback store behaves consistently across
 # requests within a single dev server run.
 _farmer_repo = InMemoryFarmerRepository()
@@ -407,6 +476,7 @@ _crop_repo = InMemoryCropRepository()
 _centre_repo = InMemoryCentreRepository()
 _slot_booking_repo = InMemorySlotBookingRepository()
 _queue_repo = InMemoryQueueRepository()
+_payment_repo = InMemoryPaymentRepository()
 
 
 def get_memory_farmer_repository() -> InMemoryFarmerRepository:
@@ -432,3 +502,8 @@ def get_memory_slot_booking_repository() -> InMemorySlotBookingRepository:
 def get_memory_queue_repository() -> InMemoryQueueRepository:
     """Return the process-wide singleton in-memory queue repository."""
     return _queue_repo
+
+
+def get_memory_payment_repository() -> InMemoryPaymentRepository:
+    """Return the process-wide singleton in-memory payment repository."""
+    return _payment_repo

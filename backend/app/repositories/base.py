@@ -156,6 +156,15 @@ class SlotBookingRepository(ABC):
         """
         ...
 
+    @abstractmethod
+    def create_batch_atomic(
+        self, booking_ids: List[str], capacity: int, data_list: List[Dict[str, Any]]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Atomically create a batch of bookings if capacity is available for all.
+        Returns None if capacity is insufficient for the entire batch, ensuring
+        no partial state is left behind (all-or-nothing).
+        """
+        ...
 
 class QueueRepository(ABC):
     """Abstract base class for the Dynamic Queue system's live check-in data.
@@ -219,4 +228,27 @@ class QueueRepository(ABC):
         already resolved (callers should treat all as 404 - same reasoning
         as SlotBookingRepository.cancel).
         """
+        ...
+
+class PaymentRepository(ABC):
+    """Abstract base class for payment data persistence."""
+
+    @abstractmethod
+    def get(self, payment_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a payment record by ID."""
+        ...
+
+    @abstractmethod
+    def get_by_booking_id(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a payment record by its associated booking ID."""
+        ...
+
+    @abstractmethod
+    def create(self, payment_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new payment record."""
+        ...
+
+    @abstractmethod
+    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
+        """List all payments for a farmer."""
         ...
