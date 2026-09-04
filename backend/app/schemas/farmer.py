@@ -35,6 +35,7 @@ class FarmerCreate(BaseModel):
     district: str = Field(min_length=1, max_length=120)
     state: str = Field(min_length=1, max_length=120)
     preferred_language: str = Field(default="en")
+    village_name: Optional[str] = Field(None, max_length=100, description="Village name for cluster grouping")
 
     @field_validator("full_name", "village", "district", "state")
     @classmethod
@@ -126,6 +127,7 @@ class FarmerOut(BaseModel):
     preferred_language: str
     phone_verified: bool = False
     created_at: datetime
+    village_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
