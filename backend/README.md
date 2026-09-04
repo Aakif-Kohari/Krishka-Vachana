@@ -97,7 +97,7 @@ built to be deployable as-is rather than a throwaway prototype:
 |---|---|
 | ~~2~~ | ~~Procurement-centre listing, Smart Slot booking, congestion-prediction integration point (consumes AI/ML's endpoint)~~ done |
 | ~~3~~ | ~~Dynamic Queue system (position, printable token generation), SMS/OTP integration~~ done |
-| 4 | Payment tracking, Historical farm record, Village Cluster Booking, polish |
+| ~~4~~ | ~~Payment tracking, Historical farm record, Village Cluster Booking, polish~~ done |
 
 ## API surface (Phase 1 + 2 + 3)
 
@@ -129,6 +129,10 @@ All endpoints are versioned under `/api/v1` and (except health) require
 | POST | `/api/v1/queue/{queue_id}/leave` | Cancel the farmer's own queue entry without being served |
 | GET | `/api/v1/queue/centre/{centre_id}` | Aggregate, identity-free live queue status for a centre |
 | GET | `/api/v1/queue/{queue_id}/token` | Printable token page (HTML, not in the OpenAPI schema - see below) |
+| POST | `/api/v1/bookings/cluster` | Book a Smart Slot for a village cluster (atomic batch reservation) |
+| POST | `/api/v1/payments` | Record a payment against a booking (simulates gateway webhook) |
+| GET | `/api/v1/payments/me` | List all payments for the authenticated farmer |
+| GET | `/api/v1/farmers/me/history` | Aggregated historical record (crops, bookings, payments) |
 
 Human-facing pages (disable in prod with `ENABLE_DOCS=false` if you don't
 want them public):

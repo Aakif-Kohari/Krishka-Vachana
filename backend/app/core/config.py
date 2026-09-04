@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     enable_docs: bool = True
 
+    # Phase 4: Payment Gateway Integration Point
+    payment_gateway_webhook_secret: str = ""
+    payment_gateway_mock_url: str = "https://mock-payment-gateway.local/webhook"
+
     @property
     def cors_origin_list(self) -> List[str]:
         """Parse comma-separated CORS origins into a list."""
