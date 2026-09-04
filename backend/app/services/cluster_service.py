@@ -1,0 +1,80 @@
+"""Village Cluster Booking business logic.
+
+Handles bulk slot bookings for groups of farmers from the same village.
+Validates village membership and atomically reserves capacity for the
+entire group, rolling back all reservations if capacity is insufficient
+for even one farmer in the batch.
+"""
+import logging
+import uuid
+from datetime import datetime, timezone
+from typing import List
+
+from app.core.exceptions import AppError, ConflictError, NotFoundError
+from app.repositories.base import CentreRepository, FarmerRepository, SlotBookingRepository
+from app.schemas.cluster import ClusterBookingCreate, ClusterBookingOut
+
+logger = logging.getLogger("app.services.cluster_service")
+
+
+def create_cluster_booking(
+    cluster_data: ClusterBookingCreate,
+    farmer_repo: FarmerRepository,
+    booking_repo: SlotBookingRepository,
+    centre_repo: CentreRepository,
+) -> ClusterBookingOut:
+    """Create a batch of bookings for a village cluster.
+    
+    1. Validates all farmers exist and belong to the claimed village.
+    2. Verifies the centre exists.
+    3. Atomically reserves capacity for the entire group.
+    """
+    # 1. Validate all farmers exist and belong to the claimed village
+    for fid in cluster_data.farmer_ids:
+        farmer = farmer_repo.get(fid)
+        if not farmer:
+            raise NotFoundError(f"Farmer {fid} not found")
+        if farmer.get("village") != cluster_data.village:
+            raise AppError(f"Farmer {fid} does not belong to village {cluster_data.village}")
+
+    # 2. Verify centre exists
+    centre = centre_repo.get(cluster_data.centre_id)
+    if not centre:
+        raise NotFoundError(f"Centre {cluster_data.centre_id} not found")
+    
+    capacity = centre.get("capacity_per_slot", 0)
+
+    # 3. Prepare batch data
+    # We need to generate booking IDs and format slot_date for the repo
+    slot_date_iso = cluster_data.slot_date.isoformat()
+    
+    data_list = []
+    booking_ids = []
+    for fid in cluster_data.farmer_ids:
+        bid = str(uuid.uuid4())
+        booking_ids.append(bid)
+        data_list.append({
+            "farmer_id": fid,
+            "centre_id": cluster_data.centre_id,
+            "slot_date": slot_date_iso,
+            "slot_window": cluster_data.slot_window,
+            "status": "confirmed",
+            "created_at": datetime.now(timezone.utc),
+        })
+
+    # 4. Atomic Batch Creation
+    created_bookings = booking_repo.create_batch_atomic(
+        booking_ids=booking_ids,
+        capacity=capacity,
+        data_list=data_list
+    )
+
+    if created_bookings is None:
+        raise ConflictError("Insufficient capacity for the entire village cluster")
+
+    return ClusterBookingOut(
+        cluster_id=str(uuid.uuid4()),
+        village=cluster_data.village,
+        booking_ids=booking_ids,
+        created_at=datetime.now(timezone.utc),
+    )
