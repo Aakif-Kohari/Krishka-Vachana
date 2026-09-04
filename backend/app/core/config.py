@@ -6,7 +6,7 @@ Database & Infrastructure engineer. This module only reads the values the
 backend needs to talk to services that already exist.
 """
 from functools import lru_cache
-from typing import List
+from typing import List, Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     # SMS gateway
     sms_gateway_api_key: str = ""
     sms_gateway_base_url: str = ""
-    sms_gateway_timeout_seconds: float = 5.0
+    sms_gateway_timeout_seconds: Optional[float] = Field(default=5.0, gt=0)
 
     # Phone-number OTP verification (Phase 3, see app/services/otp_service.py).
     # Independent of Firebase Authentication - see app/schemas/otp.py.
@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     otp_ttl_seconds: int = Field(default=600, ge=1)
     otp_max_attempts: int = Field(default=5, ge=1)
     otp_request_cooldown_seconds: int = Field(default=60, ge=1)
+    otp_hmac_secret: str = Field(min_length=32)
 
     # API
     api_v1_prefix: str = "/api/v1"

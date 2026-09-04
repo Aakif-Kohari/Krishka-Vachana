@@ -1,6 +1,9 @@
 """Tests for the generic SMS gateway client (app/core/sms.py)."""
 import logging
 
+import pytest
+from pydantic import ValidationError
+
 from app.core.config import Settings
 from app.core.sms import send_sms
 
@@ -81,3 +84,32 @@ def test_send_sms_omits_auth_header_without_api_key(monkeypatch):
     send_sms(settings, "9876543210", "hello")
 
     assert "Authorization" not in captured["headers"]
+
+
+@pytest.mark.parametrize("timeout", [0, -1.0])
+def test_sms_gateway_timeout_rejects_non_positive_values(timeout):
+    """Test that only positive timeout values are accepted when configured."""
+    with pytest.raises(ValidationError):
+        Settings(sms_gateway_timeout_seconds=timeout)
+
+
+def test_sms_gateway_timeout_allows_none_to_disable_httpx_timeout(monkeypatch):
+    """Test that None remains the explicit way to disable the HTTPX timeout."""
+    settings = Settings(
+        sms_gateway_base_url="https://sms.example.com/send",
+        sms_gateway_timeout_seconds=None,
+    )
+    captured = {}
+
+    class _FakeResponse:
+        def raise_for_status(self):
+            return None
+
+    def fake_post(*_args, **kwargs):
+        captured["timeout"] = kwargs["timeout"]
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.core.sms.httpx.post", fake_post)
+
+    assert send_sms(settings, "9876543210", "hello") is True
+    assert captured["timeout"] is None

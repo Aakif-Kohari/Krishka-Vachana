@@ -4,6 +4,8 @@ The SMS gateway is unconfigured by default in tests (see .env.example /
 Settings defaults). OTP generation is patched to a known value because
 delivery logs intentionally redact both the destination and code.
 """
+import hashlib
+import hmac
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -280,13 +282,29 @@ def test_otp_settings_reject_length_outside_request_schema_range(value):
         Settings(otp_length=value)
 
 
+def test_otp_hash_uses_configured_hmac_secret():
+    """Test that persisted OTP digests are keyed and depend on the configured secret."""
+    code = "123456"
+    first_secret = "first-test-only-otp-hmac-secret-32-bytes"
+    second_secret = "second-test-only-otp-hmac-secret-32-bytes"
+
+    assert otp_service._hash_code(code, first_secret) == hmac.new(
+        first_secret.encode("utf-8"),
+        code.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    assert otp_service._hash_code(code, first_secret) != otp_service._hash_code(
+        code, second_secret
+    )
+
+
 def test_concurrent_valid_otp_can_only_be_consumed_once(farmer_repo):
     """Test that concurrent OTP verification attempts can only succeed once."""
     code = "123456"
     farmer_repo.create(
         "farmer-id",
         {
-            "phone_otp_hash": otp_service._hash_code(code),
+            "phone_otp_hash": otp_service._hash_code(code, Settings().otp_hmac_secret),
             "phone_otp_expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
             "phone_otp_attempts": 0,
             "phone_verified": False,

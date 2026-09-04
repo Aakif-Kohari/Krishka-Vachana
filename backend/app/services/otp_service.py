@@ -8,6 +8,7 @@ fields are never part of FarmerOut (see app/schemas/farmer.py), so they
 never leak in API responses, the same way aadhaar_hash already doesn't.
 """
 import hashlib
+import hmac
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -22,9 +23,13 @@ from app.services.queue_service import dispatch_notification
 logger = logging.getLogger("app.otp")
 
 
-def _hash_code(code: str) -> str:
-    """Hash an OTP code using SHA-256 for secure storage."""
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+def _hash_code(code: str, secret: str) -> str:
+    """Derive an OTP digest using the server-held HMAC secret."""
+    return hmac.new(
+        secret.encode("utf-8"),
+        code.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def utcnow() -> datetime:
@@ -66,7 +71,7 @@ def request_otp(settings: Settings, farmer_repo: FarmerRepository, farmer_id: st
         issued_at,
         settings.otp_request_cooldown_seconds,
         {
-            "phone_otp_hash": _hash_code(code),
+            "phone_otp_hash": _hash_code(code, settings.otp_hmac_secret),
             "phone_otp_expires_at": expires_at,
             "phone_otp_attempts": 0,
         },
@@ -90,7 +95,7 @@ def verify_otp(settings: Settings, farmer_repo: FarmerRepository, farmer_id: str
     """Verify a submitted OTP code against the farmer's pending challenge."""
     result = farmer_repo.consume_phone_otp_attempt(
         farmer_id,
-        _hash_code(otp_code),
+        _hash_code(otp_code, settings.otp_hmac_secret),
         utcnow(),
         settings.otp_max_attempts,
     )
