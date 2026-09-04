@@ -118,6 +118,7 @@ class FarmerOut(BaseModel):
     district: str
     state: str
     preferred_language: str
+    phone_verified: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -8,6 +8,7 @@ from app.repositories.memory import (
     InMemoryCentreRepository,
     InMemoryCropRepository,
     InMemoryFarmerRepository,
+    InMemoryQueueRepository,
     InMemorySlotBookingRepository,
 )
 
@@ -40,13 +41,20 @@ def booking_repo():
 
 
 @pytest.fixture()
-def client(farmer_repo, crop_repo, centre_repo, booking_repo):
+def queue_repo():
+    """Provide a fresh in-memory queue repository for each test."""
+    return InMemoryQueueRepository()
+
+
+@pytest.fixture()
+def client(farmer_repo, crop_repo, centre_repo, booking_repo, queue_repo):
     """Provide a test client with dependency overrides for isolated testing."""
     app.dependency_overrides[deps.get_current_farmer_uid] = lambda: TEST_FARMER_ID
     app.dependency_overrides[deps.get_farmer_repository] = lambda: farmer_repo
     app.dependency_overrides[deps.get_crop_repository] = lambda: crop_repo
     app.dependency_overrides[deps.get_centre_repository] = lambda: centre_repo
     app.dependency_overrides[deps.get_slot_booking_repository] = lambda: booking_repo
+    app.dependency_overrides[deps.get_queue_repository] = lambda: queue_repo
     app.dependency_overrides[get_aadhaar_hmac_key] = lambda: TEST_AADHAAR_HMAC_KEY
 
     with TestClient(app) as test_client:

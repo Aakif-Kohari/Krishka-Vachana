@@ -7,7 +7,7 @@ once the Firestore schema and security rules are finalized, instead of us
 touching each other's code directly.
 """
 from abc import ABC, abstractmethod
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 
@@ -119,5 +119,67 @@ class SlotBookingRepository(ABC):
         Returns the updated record, or None if not found or not owned by
         farmer_id (callers should treat both as 404, not 403 - see
         app/services/slot_service.py for why).
+        """
+        ...
+
+
+class QueueRepository(ABC):
+    """Abstract base class for the Dynamic Queue system's live check-in data.
+
+    A Smart Slot booking (SlotBookingRepository) reserves capacity ahead of
+    time; a queue entry here represents the farmer's actual, live
+    arrival-order position at the centre on the day of their slot. There is
+    no separate "centre staff" role in this system yet (see
+    team_work_division.md), so every status transition is farmer-initiated
+    and ownership-checked - see app/services/queue_service.py.
+    """
+
+    @abstractmethod
+    def get(self, queue_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a queue entry by ID."""
+        ...
+
+    @abstractmethod
+    def get_active_for_farmer(self, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a farmer's current waiting queue entry, if any."""
+        ...
+
+    @abstractmethod
+    def get_active_for_booking(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve the waiting queue entry checked in against a booking, if any."""
+        ...
+
+    @abstractmethod
+    def create_check_in(
+        self, queue_id: str, centre_id: str, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Atomically check a farmer in, assigning the next daily per-centre
+        sequence number (used to build the printable token number).
+        Returns None (no partial state left behind) if farmer_id or
+        booking_id in `data` already has an active (waiting) entry - mirrors
+        SlotBookingRepository.create_if_capacity_available's reserve-then-
+        create pattern.
+        """
+        ...
+
+    @abstractmethod
+    def count_waiting_ahead(self, centre_id: str, joined_at: datetime) -> int:
+        """Count waiting entries at a centre that joined strictly before joined_at."""
+        ...
+
+    @abstractmethod
+    def count_waiting(self, centre_id: str) -> int:
+        """Count all waiting entries at a centre."""
+        ...
+
+    @abstractmethod
+    def resolve(
+        self, queue_id: str, farmer_id: str, new_status: str, resolved_at: datetime
+    ) -> Optional[Dict[str, Any]]:
+        """Move a farmer's own waiting entry to a terminal status ("served" or
+        "left") and free its farmer/booking reservations. Returns the
+        updated record, or None if not found, not owned by farmer_id, or
+        already resolved (callers should treat all as 404 - same reasoning
+        as SlotBookingRepository.cancel).
         """
         ...
