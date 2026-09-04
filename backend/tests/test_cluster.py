@@ -129,3 +129,43 @@ def test_cluster_booking_rejects_duplicate_farmer_ids(
     )
 
     assert res.status_code == 422
+
+
+def test_cluster_booking_strips_claimed_village(
+    client: TestClient, auth_headers, farmer_repo, centre_repo
+):
+    farmer_repo.create(
+        "test-farmer-uid-123", {"full_name": "F1", "village": "V1"}
+    )
+    centre_repo.list()
+
+    res = client.post(
+        "/api/v1/bookings/cluster",
+        json={
+            "centre_id": "ctr-solapur-apmc",
+            "slot_date": "2026-10-01",
+            "slot_window": "08:00-10:00",
+            "village": "  V1  ",
+            "farmer_ids": ["test-farmer-uid-123"],
+        },
+        headers=auth_headers,
+    )
+
+    assert res.status_code == 201
+    assert res.json()["village"] == "V1"
+
+
+def test_cluster_booking_rejects_whitespace_only_village(client: TestClient, auth_headers):
+    res = client.post(
+        "/api/v1/bookings/cluster",
+        json={
+            "centre_id": "ctr-solapur-apmc",
+            "slot_date": "2026-10-01",
+            "slot_window": "08:00-10:00",
+            "village": "   ",
+            "farmer_ids": ["test-farmer-uid-123"],
+        },
+        headers=auth_headers,
+    )
+
+    assert res.status_code == 422

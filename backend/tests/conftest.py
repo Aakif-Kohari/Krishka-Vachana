@@ -4,6 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("OTP_HMAC_SECRET", "test-only-otp-hmac-secret-32-bytes")
+os.environ.setdefault(
+    "PAYMENT_GATEWAY_WEBHOOK_SECRET",
+    "q7L9vN2xK4mP8rT5wY1cF6hJ3sU0aB9dE2gI7kM",
+)
 
 from app.api import deps
 from app.core.secrets import get_aadhaar_hmac_key

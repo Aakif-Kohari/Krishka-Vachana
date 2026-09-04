@@ -5,10 +5,30 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.core.config import Settings, get_settings
 from app.main import app
+
+
+WEBHOOK_SECRET = "q7L9vN2xK4mP8rT5wY1cF6hJ3sU0aB9dE2gI7kM"
+
+
+@pytest.mark.parametrize(
+    "secret",
+    ["", "short", "a" * 64, "replace-with-a-random-secret-at-least-32-characters"],
+)
+def test_production_settings_reject_missing_or_predictable_webhook_secret(secret):
+    with pytest.raises(ValidationError):
+        Settings(environment="production", payment_gateway_webhook_secret=secret)
+
+
+def test_development_settings_allow_unset_webhook_secret():
+    assert Settings(
+        environment="development", payment_gateway_webhook_secret=""
+    ).payment_gateway_webhook_secret == ""
 
 
 def _create_booking(booking_repo, booking_id="booking-1"):
@@ -97,7 +117,7 @@ def test_mock_payment_is_rejected_outside_development(
 
 def test_signed_gateway_webhook_records_payment(client: TestClient, booking_repo):
     _create_booking(booking_repo)
-    secret = "test-webhook-secret"
+    secret = WEBHOOK_SECRET
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="production", payment_gateway_webhook_secret=secret
     )
@@ -124,7 +144,7 @@ def test_signed_gateway_webhook_records_payment(client: TestClient, booking_repo
 def test_gateway_webhook_rejects_invalid_signature(client: TestClient, booking_repo):
     _create_booking(booking_repo)
     app.dependency_overrides[get_settings] = lambda: Settings(
-        environment="production", payment_gateway_webhook_secret="expected-secret"
+        environment="production", payment_gateway_webhook_secret=WEBHOOK_SECRET
     )
     body = json.dumps(
         {

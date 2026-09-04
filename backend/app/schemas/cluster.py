@@ -25,6 +25,16 @@ class ClusterBookingCreate(BaseModel):
         description="List of farmer UIDs in the cluster; all must belong to the claimed village",
     )
 
+    @field_validator("village", mode="before")
+    @classmethod
+    def strip_and_require_village(cls, village: object) -> object:
+        """Strip the claimed village and reject whitespace-only values."""
+        if isinstance(village, str):
+            village = village.strip()
+            if not village:
+                raise ValueError("village must not be empty after trimming whitespace")
+        return village
+
     @field_validator("farmer_ids")
     @classmethod
     def require_unique_farmer_ids(cls, farmer_ids: List[str]) -> List[str]:

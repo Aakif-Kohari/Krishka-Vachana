@@ -1,6 +1,8 @@
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
+import pytest
+
 from app.repositories import firestore as firestore_module
 from app.repositories.firestore import (
     ACTIVE_BOOKING_QUEUE_COLLECTION,
@@ -125,6 +127,50 @@ def test_centre_get_returns_none_for_malformed_document():
     assert FirestoreCentreRepository(client).get("incomplete-centre") is None
 
 
+def test_cluster_delegate_authorization_fetches_all_farmers_in_one_call():
+    client = MagicMock()
+    collection = MagicMock()
+    client.collection.return_value = collection
+    refs = [MagicMock(), MagicMock()]
+    collection.document.side_effect = refs
+    client.get_all.return_value = [
+        _snapshot(
+            exists=True,
+            data={"authorized_cluster_delegate_ids": ["delegate-id"]},
+        ),
+        _snapshot(
+            exists=True,
+            data={"authorized_cluster_delegate_ids": ["delegate-id"]},
+        ),
+    ]
+
+    authorized = FirestoreFarmerRepository(client).is_cluster_delegate_authorized(
+        "delegate-id", ["farmer-1", "farmer-2"]
+    )
+
+    assert authorized is True
+    client.get_all.assert_called_once_with(refs)
+    for ref in refs:
+        ref.get.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "snapshots",
+    [
+        [_snapshot(exists=False)],
+        [_snapshot(exists=True, data={"authorized_cluster_delegate_ids": "delegate-id"})],
+        [],
+    ],
+)
+def test_cluster_delegate_authorization_rejects_missing_or_invalid_grants(snapshots):
+    client = MagicMock()
+    client.get_all.return_value = snapshots
+
+    assert FirestoreFarmerRepository(client).is_cluster_delegate_authorized(
+        "delegate-id", ["farmer-1"]
+    ) is False
+
+
 def test_firestore_booking_serializes_date_and_creates_active_key(monkeypatch):
     """Test that slot bookings serialize dates to ISO strings and create active booking keys."""
     monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
@@ -168,6 +214,49 @@ def test_firestore_booking_serializes_date_and_creates_active_key(monkeypatch):
     )
     assert booking_write["slot_date"] == "2026-09-03"
     assert any(call.args[0] is active_ref for call in transaction.create.call_args_list)
+
+
+def test_firestore_batch_booking_serializes_date(monkeypatch):
+    monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
+    client = MagicMock()
+    transaction = MagicMock()
+    client.transaction.return_value = transaction
+    collections = {
+        SLOT_BOOKINGS_COLLECTION: MagicMock(),
+        SLOT_CAPACITY_COUNTERS_COLLECTION: MagicMock(),
+        ACTIVE_SLOT_BOOKINGS_COLLECTION: MagicMock(),
+    }
+    client.collection.side_effect = collections.__getitem__
+    booking_ref = collections[SLOT_BOOKINGS_COLLECTION].document.return_value
+    collections[SLOT_CAPACITY_COUNTERS_COLLECTION].document.return_value.get.return_value = (
+        _snapshot(exists=False)
+    )
+    booking_ref.get.return_value = _snapshot(exists=False)
+    collections[ACTIVE_SLOT_BOOKINGS_COLLECTION].document.return_value.get.return_value = (
+        _snapshot(exists=False)
+    )
+
+    result = FirestoreSlotBookingRepository(client).create_batch_atomic(
+        ["booking-id"],
+        2,
+        [
+            {
+                "farmer_id": "farmer-id",
+                "centre_id": "centre-id",
+                "slot_date": date(2026, 9, 3),
+                "slot_window": "08:00-10:00",
+                "status": "booked",
+            }
+        ],
+    )
+
+    assert result[0]["slot_date"] == "2026-09-03"
+    booking_write = next(
+        data
+        for ref, data in (call.args for call in transaction.create.call_args_list)
+        if ref is booking_ref
+    )
+    assert booking_write["slot_date"] == "2026-09-03"
 
 
 def test_firestore_phone_otp_attempt_is_consumed_in_transaction(monkeypatch):

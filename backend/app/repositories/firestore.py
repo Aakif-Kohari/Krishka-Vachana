@@ -75,11 +75,17 @@ class FirestoreFarmerRepository(FarmerRepository):
         if not farmer_ids:
             return False
         farmer_collection = self._client.collection(FARMERS_COLLECTION)
-        for farmer_id in farmer_ids:
-            snapshot = farmer_collection.document(farmer_id).get()
+        farmer_refs = [farmer_collection.document(farmer_id) for farmer_id in farmer_ids]
+        snapshots = list(self._client.get_all(farmer_refs))
+        if len(snapshots) != len(farmer_refs):
+            return False
+        for snapshot in snapshots:
             if not snapshot.exists:
                 return False
-            grants = snapshot.to_dict().get("authorized_cluster_delegate_ids")
+            farmer = snapshot.to_dict()
+            if not isinstance(farmer, dict):
+                return False
+            grants = farmer.get("authorized_cluster_delegate_ids")
             if not isinstance(grants, list) or delegate_id not in grants:
                 return False
         return True
@@ -537,7 +543,7 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
             
             created_records = []
             for bid, data, bref, aref in zip(booking_ids, data_list, booking_refs, active_refs):
-                record = {"booking_id": bid, **data}
+                record = {"booking_id": bid, **data, "slot_date": slot_date_iso}
                 transaction.create(bref, record)
                 transaction.create(aref, {
                     "booking_id": bid, "farmer_id": data["farmer_id"],
