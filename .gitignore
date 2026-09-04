@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+krishka-vachana-firebase-adminsdk-fbsvc-395b9fcab6.json
+firebase-service-account.json
+
 # next.js
 /.next/
 /out/
