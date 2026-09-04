@@ -6,6 +6,7 @@ from app.core.sms import send_sms
 
 
 def test_send_sms_dry_run_when_unconfigured(caplog):
+    """Test that SMS sending logs and returns False when gateway is not configured."""
     settings = Settings(sms_gateway_base_url="")
     with caplog.at_level(logging.INFO, logger="app.sms"):
         sent = send_sms(settings, "9876543210", "hello")
@@ -16,14 +17,17 @@ def test_send_sms_dry_run_when_unconfigured(caplog):
 
 
 def test_send_sms_posts_when_configured(monkeypatch):
+    """Test that SMS sends properly formatted POST request when gateway is configured."""
     settings = Settings(sms_gateway_base_url="https://sms.example.com/send", sms_gateway_api_key="secret-key")
     captured = {}
 
     class _FakeResponse:
+        """Mock HTTP response for testing."""
         def raise_for_status(self):
             return None
 
     def fake_post(url, json, headers, timeout):
+        """Mock POST request that captures arguments."""
         captured["url"] = url
         captured["json"] = json
         captured["headers"] = headers
@@ -41,9 +45,11 @@ def test_send_sms_posts_when_configured(monkeypatch):
 
 
 def test_send_sms_handles_gateway_failure(monkeypatch, caplog):
+    """Test that SMS gateway failures are logged and return False without raising."""
     settings = Settings(sms_gateway_base_url="https://sms.example.com/send")
 
     def fake_post(*args, **kwargs):
+        """Mock POST that raises connection error."""
         raise ConnectionError("gateway unreachable")
 
     monkeypatch.setattr("app.core.sms.httpx.post", fake_post)
@@ -56,14 +62,17 @@ def test_send_sms_handles_gateway_failure(monkeypatch, caplog):
 
 
 def test_send_sms_omits_auth_header_without_api_key(monkeypatch):
+    """Test that Authorization header is omitted when no API key is configured."""
     settings = Settings(sms_gateway_base_url="https://sms.example.com/send", sms_gateway_api_key="")
     captured = {}
 
     class _FakeResponse:
+        """Mock HTTP response for testing."""
         def raise_for_status(self):
             return None
 
     def fake_post(url, json, headers, timeout):
+        """Mock POST request that captures headers."""
         captured["headers"] = headers
         return _FakeResponse()
 

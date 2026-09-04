@@ -60,6 +60,7 @@ def _check_in(client, auth_headers, booking_id):
 # ---------------------------------------------------------------------------
 
 def test_check_in_success(client, auth_headers, seeded_centre_id):
+    """Test successful check-in assigns token number and position."""
     _register_farmer(client, auth_headers)
     booking = _book_slot(client, auth_headers, seeded_centre_id)
 
@@ -76,11 +77,13 @@ def test_check_in_success(client, auth_headers, seeded_centre_id):
 
 
 def test_check_in_unknown_booking_is_404(client, auth_headers):
+    """Test that checking in with non-existent booking returns 404."""
     r = _check_in(client, auth_headers, "non-existent-booking-id")
     assert r.status_code == 404
 
 
 def test_check_in_rejects_someone_elses_booking(client, auth_headers, seeded_centre_id, booking_repo):
+    """Test that farmer cannot check in using another farmer's booking."""
     booking_repo.create_if_capacity_available(
         "other-farmers-booking",
         10,
@@ -100,6 +103,7 @@ def test_check_in_rejects_someone_elses_booking(client, auth_headers, seeded_cen
 
 
 def test_check_in_rejects_future_slot(client, auth_headers, seeded_centre_id):
+    """Test that checking in for a future slot date returns conflict."""
     _register_farmer(client, auth_headers)
     booking = _book_slot(client, auth_headers, seeded_centre_id, slot_date=TOMORROW)
 
@@ -110,6 +114,7 @@ def test_check_in_rejects_future_slot(client, auth_headers, seeded_centre_id):
 
 
 def test_check_in_rejects_cancelled_booking(client, auth_headers, seeded_centre_id):
+    """Test that checking in with a cancelled booking returns conflict."""
     _register_farmer(client, auth_headers)
     booking = _book_slot(client, auth_headers, seeded_centre_id)
     cancel = client.post(f"/api/v1/bookings/{booking['booking_id']}/cancel", headers=auth_headers)
@@ -120,6 +125,7 @@ def test_check_in_rejects_cancelled_booking(client, auth_headers, seeded_centre_
 
 
 def test_check_in_deduplicates_same_booking(client, auth_headers, seeded_centre_id):
+    """Test that the same booking cannot be checked in twice."""
     _register_farmer(client, auth_headers)
     booking = _book_slot(client, auth_headers, seeded_centre_id)
 
@@ -128,6 +134,7 @@ def test_check_in_deduplicates_same_booking(client, auth_headers, seeded_centre_
 
 
 def test_check_in_deduplicates_same_farmer_active_entry(client, auth_headers, seeded_centre_id):
+    """Test that a farmer with an active entry cannot check in again."""
     _register_farmer(client, auth_headers)
     booking1 = _book_slot(client, auth_headers, seeded_centre_id, slot_window="08:00-10:00")
     booking2 = _book_slot(client, auth_headers, seeded_centre_id, slot_window="10:00-12:00")
@@ -143,6 +150,7 @@ def test_check_in_deduplicates_same_farmer_active_entry(client, auth_headers, se
 # ---------------------------------------------------------------------------
 
 def test_position_reflects_arrival_order_and_updates_when_someone_leaves():
+    """Test that queue positions reflect arrival order and update when farmers leave."""
     queue_repo = InMemoryQueueRepository()
     booking_repo = InMemorySlotBookingRepository()
     farmer_repo = InMemoryFarmerRepository()
@@ -187,9 +195,11 @@ def test_position_reflects_arrival_order_and_updates_when_someone_leaves():
 
 
 def test_position_and_waiting_count_only_include_same_queue_date():
+    """Test that queue position and counts are scoped to the same date."""
     queue_repo = InMemoryQueueRepository()
 
     def create(queue_id, joined_at):
+        """Helper to create a queue check-in entry."""
         return queue_repo.create_check_in(
             queue_id,
             "centre-1",
@@ -217,6 +227,7 @@ def test_position_and_waiting_count_only_include_same_queue_date():
 # ---------------------------------------------------------------------------
 
 def test_get_my_status_returns_waiting_entry(client, auth_headers, seeded_centre_id):
+    """Test that GET /queue/me returns the farmer's active waiting entry."""
     _register_farmer(client, auth_headers)
     booking = _book_slot(client, auth_headers, seeded_centre_id)
     _check_in(client, auth_headers, booking["booking_id"])
@@ -228,11 +239,13 @@ def test_get_my_status_returns_waiting_entry(client, auth_headers, seeded_centre
 
 
 def test_get_my_status_404_when_no_active_entry(client, auth_headers):
+    """Test that GET /queue/me returns 404 when farmer has no active entry."""
     r = client.get("/api/v1/queue/me", headers=auth_headers)
     assert r.status_code == 404
 
 
 def test_get_entry_not_accessible_by_other_farmer(client, auth_headers, seeded_centre_id):
+    """Test that farmers cannot access other farmers' queue entries."""
     from app.api import deps
     from app.main import app
 
@@ -250,6 +263,7 @@ def test_get_entry_not_accessible_by_other_farmer(client, auth_headers, seeded_c
 # ---------------------------------------------------------------------------
 
 def test_complete_entry(client, auth_headers, seeded_centre_id):
+    """Test that completing a queue entry marks it as served and removes position."""
     _register_farmer(client, auth_headers)
     booking = _book_slot(client, auth_headers, seeded_centre_id)
     queue_id = _check_in(client, auth_headers, booking["booking_id"]).json()["queue_id"]
@@ -265,6 +279,7 @@ def test_complete_entry(client, auth_headers, seeded_centre_id):
 
 
 def test_leave_queue(client, auth_headers, seeded_centre_id):
+    """Test that leaving queue marks entry as left."""
     _register_farmer(client, auth_headers)
     booking = _book_slot(client, auth_headers, seeded_centre_id)
     queue_id = _check_in(client, auth_headers, booking["booking_id"]).json()["queue_id"]
@@ -276,6 +291,7 @@ def test_leave_queue(client, auth_headers, seeded_centre_id):
 
 
 def test_cannot_resolve_already_resolved_entry(client, auth_headers, seeded_centre_id):
+    """Test that already-resolved queue entries cannot be resolved again."""
     _register_farmer(client, auth_headers)
     booking = _book_slot(client, auth_headers, seeded_centre_id)
     queue_id = _check_in(client, auth_headers, booking["booking_id"]).json()["queue_id"]
@@ -286,6 +302,7 @@ def test_cannot_resolve_already_resolved_entry(client, auth_headers, seeded_cent
 
 
 def test_after_leaving_farmer_can_check_in_again(client, auth_headers, seeded_centre_id):
+    """Test that after leaving queue, farmer can check in again with a new booking."""
     _register_farmer(client, auth_headers)
     booking1 = _book_slot(client, auth_headers, seeded_centre_id, slot_window="08:00-10:00")
     booking2 = _book_slot(client, auth_headers, seeded_centre_id, slot_window="10:00-12:00")
@@ -303,6 +320,7 @@ def test_after_leaving_farmer_can_check_in_again(client, auth_headers, seeded_ce
 # ---------------------------------------------------------------------------
 
 def test_centre_status_waiting_count(client, auth_headers, seeded_centre_id):
+    """Test that centre status endpoint returns aggregate waiting count."""
     _register_farmer(client, auth_headers)
     booking = _book_slot(client, auth_headers, seeded_centre_id)
     _check_in(client, auth_headers, booking["booking_id"])
@@ -318,6 +336,7 @@ def test_centre_status_waiting_count(client, auth_headers, seeded_centre_id):
 
 
 def test_centre_status_unknown_centre_is_404(client, auth_headers):
+    """Test that centre status for unknown centre returns 404."""
     r = client.get("/api/v1/queue/centre/does-not-exist", headers=auth_headers)
     assert r.status_code == 404
 
@@ -327,6 +346,7 @@ def test_centre_status_unknown_centre_is_404(client, auth_headers):
 # ---------------------------------------------------------------------------
 
 def test_printable_token_returns_html(client, auth_headers, seeded_centre_id):
+    """Test that printable token endpoint returns HTML with token details."""
     _register_farmer(client, auth_headers)
     booking = _book_slot(client, auth_headers, seeded_centre_id)
     queue_id = _check_in(client, auth_headers, booking["booking_id"]).json()["queue_id"]
@@ -342,6 +362,7 @@ def test_printable_token_returns_html(client, auth_headers, seeded_centre_id):
 
 
 def test_printable_token_reflects_served_status(client, auth_headers, seeded_centre_id):
+    """Test that printable token shows served status after completion."""
     _register_farmer(client, auth_headers)
     booking = _book_slot(client, auth_headers, seeded_centre_id)
     queue_id = _check_in(client, auth_headers, booking["booking_id"]).json()["queue_id"]
@@ -354,6 +375,7 @@ def test_printable_token_reflects_served_status(client, auth_headers, seeded_cen
 
 
 def test_printable_token_not_accessible_by_other_farmer(client, auth_headers, seeded_centre_id):
+    """Test that farmers cannot access other farmers' printable tokens."""
     from app.api import deps
     from app.main import app
 
@@ -367,6 +389,7 @@ def test_printable_token_not_accessible_by_other_farmer(client, auth_headers, se
 
 
 def test_printable_token_excluded_from_openapi_schema(client):
+    """Test that printable token endpoint is excluded from OpenAPI docs."""
     schema = client.get("/openapi.json").json()
     assert "/api/v1/queue/{queue_id}/token" not in schema["paths"]
 
@@ -376,6 +399,7 @@ def test_printable_token_excluded_from_openapi_schema(client):
 # ---------------------------------------------------------------------------
 
 def test_concurrent_check_in_same_booking_allows_only_one():
+    """Test that concurrent check-in attempts for the same booking only succeed once."""
     booking_repo = InMemorySlotBookingRepository()
     queue_repo = InMemoryQueueRepository()
     farmer_repo = InMemoryFarmerRepository()
@@ -399,6 +423,7 @@ def test_concurrent_check_in_same_booking_allows_only_one():
     payload = QueueCheckInCreate(booking_id="booking-1")
 
     def do_check_in(_):
+        """Helper to attempt check-in and return None on conflict."""
         try:
             return queue_service.check_in(queue_repo, booking_repo, farmer_repo, "f1", payload)
         except ConflictError:
@@ -413,10 +438,12 @@ def test_concurrent_check_in_same_booking_allows_only_one():
 
 
 def test_check_in_notification_dispatch_does_not_wait_for_sms(monkeypatch):
+    """Test that check-in notification dispatch is non-blocking."""
     started = Event()
     release = Event()
 
     def slow_notification(*_args):
+        """Mock notification that blocks until released to test non-blocking dispatch."""
         started.set()
         release.wait(timeout=2)
 
@@ -435,6 +462,7 @@ def test_check_in_notification_dispatch_does_not_wait_for_sms(monkeypatch):
 
 
 def test_concurrent_check_ins_keep_token_and_position_order_consistent(monkeypatch):
+    """Test that concurrent check-ins maintain consistent token numbers and positions."""
     booking_repo = InMemorySlotBookingRepository()
     queue_repo = InMemoryQueueRepository()
     farmer_repo = InMemoryFarmerRepository()
@@ -456,6 +484,7 @@ def test_concurrent_check_ins_keep_token_and_position_order_consistent(monkeypat
         )
 
     def check_in(farmer_id):
+        """Helper to check in a farmer with their corresponding booking."""
         return queue_service.check_in(
             queue_repo,
             booking_repo,

@@ -57,6 +57,7 @@ class FirestoreFarmerRepository(FarmerRepository):
     """Firestore-backed implementation of FarmerRepository."""
 
     def __init__(self, client) -> None:
+        """Initialize with a Firestore client instance."""
         self._client = client
 
     def get(self, farmer_id: str) -> Optional[Dict[str, Any]]:
@@ -206,6 +207,7 @@ class FirestoreCropRepository(CropRepository):
     """Firestore-backed implementation of CropRepository."""
 
     def __init__(self, client) -> None:
+        """Initialize with a Firestore client instance."""
         self._client = client
 
     def create(self, crop_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -232,6 +234,7 @@ class FirestoreCentreRepository(CentreRepository):
     _REQUIRED_FIELDS = ("name", "village", "district", "state", "capacity_per_slot", "created_at")
 
     def __init__(self, client) -> None:
+        """Initialize with a Firestore client instance."""
         self._client = client
 
     def _record(self, doc) -> Optional[Dict[str, Any]]:
@@ -315,6 +318,7 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
     """
 
     def __init__(self, client) -> None:
+        """Initialize with a Firestore client instance."""
         self._client = client
 
     def get(self, booking_id: str) -> Optional[Dict[str, Any]]:
@@ -434,6 +438,7 @@ class FirestoreQueueRepository(QueueRepository):
     """
 
     def __init__(self, client) -> None:
+        """Initialize with a Firestore client instance."""
         self._client = client
 
     def get(self, queue_id: str) -> Optional[Dict[str, Any]]:
@@ -496,7 +501,7 @@ class FirestoreQueueRepository(QueueRepository):
 
     @staticmethod
     def _count(query) -> int:
-        """Return a Firestore server-side aggregation count."""
+        """Execute a Firestore server-side aggregation count query and return the result."""
         results = query.count(alias="count").get()
         return results[0][0].value if results else 0
 

@@ -19,6 +19,7 @@ _notification_slots = BoundedSemaphore(16)
 
 
 def _to_out(repo: QueueRepository, record: dict) -> QueueEntryOut:
+    """Convert a queue entry record to output schema with computed position and wait fields."""
     """Attach the derived token number and live position/wait fields before returning."""
     out = dict(record)
     out["token_number"] = f"{record['sequence_number']:03d}"
@@ -37,6 +38,7 @@ def _to_out(repo: QueueRepository, record: dict) -> QueueEntryOut:
 
 
 def _notify_check_in(farmer_repo: FarmerRepository, record: dict) -> None:
+    """Send best-effort SMS notification with token number to the checked-in farmer."""
     """Best-effort SMS with the farmer's token number; never blocks check-in."""
     try:
         farmer = farmer_repo.get(record["farmer_id"])
@@ -54,12 +56,14 @@ def _notify_check_in(farmer_repo: FarmerRepository, record: dict) -> None:
 
 
 def _dispatch_check_in_notification(farmer_repo: FarmerRepository, record: dict) -> None:
+    """Dispatch check-in SMS notification to background worker pool without blocking."""
     """Submit best-effort SMS delivery to the bounded process worker pool."""
     if not _notification_slots.acquire(blocking=False):
         logger.warning("Check-in SMS skipped: worker queue is full")
         return
 
     def notify_and_release() -> None:
+        """Wrapper to send notification and always release semaphore slot."""
         try:
             _notify_check_in(farmer_repo, record)
         finally:
@@ -131,6 +135,7 @@ def get_queue_entry(queue_repo: QueueRepository, farmer_id: str, queue_id: str) 
 
 
 def _resolve(queue_repo: QueueRepository, farmer_id: str, queue_id: str, new_status: str) -> QueueEntryOut:
+    """Mark a queue entry as resolved with the specified terminal status (served or left)."""
     """Mark a queue entry as resolved with the given terminal status."""
     record = queue_repo.resolve(queue_id, farmer_id, new_status, utcnow())
     if record is None:

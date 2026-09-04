@@ -22,6 +22,7 @@ class InMemoryFarmerRepository(FarmerRepository):
     """In-memory implementation of FarmerRepository for development and testing."""
 
     def __init__(self) -> None:
+        """Initialize an empty in-memory farmer repository with thread-safe locking."""
         self._data: Dict[str, Dict[str, Any]] = {}
         self._aadhaar_reservations: Dict[str, str] = {}
         self._lock = threading.Lock()
@@ -133,6 +134,7 @@ class InMemoryCropRepository(CropRepository):
     """In-memory implementation of CropRepository for development and testing."""
 
     def __init__(self) -> None:
+        """Initialize an empty in-memory crop repository with thread-safe locking."""
         self._data: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
 
@@ -187,6 +189,7 @@ class InMemoryCentreRepository(CentreRepository):
     """In-memory implementation of CentreRepository for development and testing."""
 
     def __init__(self, seed: Optional[List[Dict[str, Any]]] = None) -> None:
+        """Initialize in-memory centre repository with optional seed data or default sample centres."""
         self._lock = threading.Lock()
         self._data: Dict[str, Dict[str, Any]] = {
             record["centre_id"]: dict(record) for record in (seed if seed is not None else _DEFAULT_SEED_CENTRES)
@@ -210,7 +213,7 @@ class InMemoryCentreRepository(CentreRepository):
 
 
 def _slot_key(centre_id: str, slot_date: date, slot_window: str) -> Tuple[str, str, str]:
-    """Generate a composite key for a slot (centre, date, window)."""
+    """Generate a composite tuple key for a slot from centre, date, and window."""
     slot_date_iso = slot_date.isoformat() if hasattr(slot_date, "isoformat") else str(slot_date)
     return (centre_id, slot_date_iso, slot_window)
 
@@ -219,6 +222,7 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
     """In-memory implementation of SlotBookingRepository for development and testing."""
 
     def __init__(self) -> None:
+        """Initialize an empty in-memory slot booking repository with thread-safe locking."""
         self._data: Dict[str, Dict[str, Any]] = {}
         self._active_counts: Dict[Tuple[str, str, str], int] = {}
         self._active_booking_ids: Dict[Tuple[str, str, str, str], str] = {}
@@ -283,6 +287,7 @@ class InMemoryQueueRepository(QueueRepository):
     """In-memory implementation of QueueRepository for development and testing."""
 
     def __init__(self) -> None:
+        """Initialize an empty in-memory queue repository with thread-safe locking."""
         self._data: Dict[str, Dict[str, Any]] = {}
         self._active_farmer_ids: Dict[str, str] = {}  # farmer_id -> queue_id
         self._active_booking_ids: Dict[str, str] = {}  # booking_id -> queue_id

@@ -43,11 +43,13 @@ def _request_known_code(client, auth_headers, monkeypatch) -> str:
 
 
 def test_request_otp_requires_registration(client, auth_headers):
+    """Test that requesting OTP without a registered profile returns 404."""
     r = client.post("/api/v1/farmers/me/phone/otp/request", headers=auth_headers)
     assert r.status_code == 404
 
 
 def test_request_otp_success(client, auth_headers, monkeypatch, caplog):
+    """Test successful OTP request and verify sensitive data is not logged."""
     _register_farmer(client, auth_headers)
     code = "123456"
     monkeypatch.setattr(otp_service.secrets, "randbelow", lambda _upper_bound: int(code))
@@ -61,12 +63,14 @@ def test_request_otp_success(client, auth_headers, monkeypatch, caplog):
 
 
 def test_farmer_starts_unverified(client, auth_headers):
+    """Test that newly registered farmers have phone_verified set to False."""
     _register_farmer(client, auth_headers)
     r = client.get("/api/v1/farmers/me", headers=auth_headers)
     assert r.json()["phone_verified"] is False
 
 
 def test_verify_otp_success(client, auth_headers, monkeypatch):
+    """Test successful OTP verification sets phone_verified to True."""
     _register_farmer(client, auth_headers)
     code = _request_known_code(client, auth_headers, monkeypatch)
 
@@ -80,6 +84,7 @@ def test_verify_otp_success(client, auth_headers, monkeypatch):
 
 
 def test_verify_otp_wrong_code(client, auth_headers, monkeypatch):
+    """Test that submitting an incorrect OTP code returns validation error."""
     _register_farmer(client, auth_headers)
     _request_known_code(client, auth_headers, monkeypatch)
 
@@ -90,12 +95,14 @@ def test_verify_otp_wrong_code(client, auth_headers, monkeypatch):
 
 
 def test_verify_otp_without_request_is_conflict(client, auth_headers):
+    """Test that verifying OTP without requesting one first returns conflict."""
     _register_farmer(client, auth_headers)
     r = client.post("/api/v1/farmers/me/phone/otp/verify", json={"otp_code": "123456"}, headers=auth_headers)
     assert r.status_code == 409
 
 
 def test_verify_otp_too_many_attempts_invalidates_code(client, auth_headers, monkeypatch):
+    """Test that exceeding max attempts locks out the OTP code."""
     _register_farmer(client, auth_headers)
     code = _request_known_code(client, auth_headers, monkeypatch)
 
@@ -109,6 +116,7 @@ def test_verify_otp_too_many_attempts_invalidates_code(client, auth_headers, mon
 
 
 def test_verify_otp_expired(client, auth_headers, monkeypatch, farmer_repo):
+    """Test that expired OTP codes are rejected."""
     farmer = _register_farmer(client, auth_headers)
     code = _request_known_code(client, auth_headers, monkeypatch)
 
@@ -123,6 +131,7 @@ def test_verify_otp_expired(client, auth_headers, monkeypatch, farmer_repo):
 
 
 def test_otp_hash_never_returned_in_farmer_response(client, auth_headers, monkeypatch):
+    """Test that OTP internal fields are never exposed in farmer profile responses."""
     _register_farmer(client, auth_headers)
     _request_known_code(client, auth_headers, monkeypatch)
 
@@ -134,6 +143,7 @@ def test_otp_hash_never_returned_in_farmer_response(client, auth_headers, monkey
 
 
 def test_request_otp_respects_custom_settings(client, auth_headers):
+    """Test that OTP request respects custom TTL from settings."""
     from app.core.config import get_settings
     from app.main import app
 
@@ -159,6 +169,7 @@ def test_request_otp_respects_custom_settings(client, auth_headers):
 def test_request_otp_formats_expiration_lifetime(
     farmer_repo, monkeypatch, ttl_seconds, expected_lifetime
 ):
+    """Test that OTP expiration messages are properly formatted for different TTL values."""
     farmer_repo.create("farmer-id", {"phone_number": "9876543210"})
     sent_messages = []
     monkeypatch.setattr(
@@ -177,11 +188,13 @@ def test_request_otp_formats_expiration_lifetime(
 @pytest.mark.parametrize("field", ["otp_length", "otp_ttl_seconds", "otp_max_attempts"])
 @pytest.mark.parametrize("value", [0, -1])
 def test_otp_settings_reject_non_positive_values(field, value):
+    """Test that OTP settings reject non-positive values for length, TTL, and max attempts."""
     with pytest.raises(ValidationError):
         Settings(**{field: value})
 
 
 def test_concurrent_valid_otp_can_only_be_consumed_once(farmer_repo):
+    """Test that concurrent OTP verification attempts can only succeed once."""
     code = "123456"
     farmer_repo.create(
         "farmer-id",
@@ -194,6 +207,7 @@ def test_concurrent_valid_otp_can_only_be_consumed_once(farmer_repo):
     )
 
     def verify(_):
+        """Helper to verify OTP and return result status."""
         try:
             otp_service.verify_otp(Settings(), farmer_repo, "farmer-id", code)
             return "verified"

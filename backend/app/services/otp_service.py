@@ -32,7 +32,7 @@ def utcnow() -> datetime:
 
 
 def _format_expiration(ttl_seconds: int) -> str:
-    """Format an OTP lifetime without rounding sub-minute values down to zero."""
+    """Format an OTP lifetime as human-readable string without rounding sub-minute values to zero."""
     if ttl_seconds < 60:
         unit = "second" if ttl_seconds == 1 else "seconds"
         return f"{ttl_seconds} {unit}"

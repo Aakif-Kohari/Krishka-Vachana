@@ -21,6 +21,7 @@ from app.repositories.base import OtpVerificationResult
 
 
 def _snapshot(*, exists, data=None, doc_id="doc-id"):
+    """Create a mock Firestore document snapshot for testing."""
     snapshot = MagicMock()
     snapshot.exists = exists
     snapshot.id = doc_id
@@ -39,6 +40,7 @@ _VALID_CENTRE_DATA = {
 
 
 def test_centre_list_maps_document_id_and_filters_case_insensitively():
+    """Test that centre list maps Firestore doc IDs and filters case-insensitively."""
     client = MagicMock()
     collection = MagicMock()
     document = _snapshot(
@@ -60,6 +62,7 @@ def test_centre_list_maps_document_id_and_filters_case_insensitively():
 
 
 def test_centre_list_filters_out_non_matching_district():
+    """Test that centre list excludes centres from non-matching districts."""
     client = MagicMock()
     collection = MagicMock()
     document = _snapshot(exists=True, doc_id="centre-1", data=dict(_VALID_CENTRE_DATA))
@@ -70,6 +73,7 @@ def test_centre_list_filters_out_non_matching_district():
 
 
 def test_centre_list_skips_documents_missing_required_fields():
+    """Test that malformed centre documents missing required fields are skipped."""
     client = MagicMock()
     collection = MagicMock()
     malformed = _snapshot(exists=True, doc_id="incomplete-centre", data={"name": "Only A Name"})
@@ -80,6 +84,7 @@ def test_centre_list_skips_documents_missing_required_fields():
 
 
 def test_centre_list_skips_documents_with_invalid_field_types():
+    """Test that centre documents with invalid field types are skipped."""
     client = MagicMock()
     collection = MagicMock()
     malformed = _snapshot(
@@ -94,6 +99,7 @@ def test_centre_list_skips_documents_with_invalid_field_types():
 
 
 def test_centre_get_maps_document_id():
+    """Test that centre get maps Firestore document ID to centre_id."""
     client = MagicMock()
     collection = MagicMock()
     document = _snapshot(exists=True, doc_id="centre-from-doc-id", data=dict(_VALID_CENTRE_DATA))
@@ -106,6 +112,7 @@ def test_centre_get_maps_document_id():
 
 
 def test_centre_get_returns_none_for_malformed_document():
+    """Test that get returns None for centres with missing required fields."""
     client = MagicMock()
     collection = MagicMock()
     malformed = _snapshot(exists=True, doc_id="incomplete-centre", data={"name": "Only A Name"})
@@ -116,6 +123,7 @@ def test_centre_get_returns_none_for_malformed_document():
 
 
 def test_firestore_booking_serializes_date_and_creates_active_key(monkeypatch):
+    """Test that slot bookings serialize dates to ISO strings and create active booking keys."""
     monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
     client = MagicMock()
     transaction = MagicMock()
@@ -160,6 +168,7 @@ def test_firestore_booking_serializes_date_and_creates_active_key(monkeypatch):
 
 
 def test_firestore_phone_otp_attempt_is_consumed_in_transaction(monkeypatch):
+    """Test that OTP verification is atomic and updates phone_verified flag."""
     monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
     client = MagicMock()
     transaction = MagicMock()
@@ -193,6 +202,7 @@ def test_firestore_phone_otp_attempt_is_consumed_in_transaction(monkeypatch):
 
 
 def test_firestore_queue_check_in_persists_queue_date(monkeypatch):
+    """Test that queue check-in extracts and persists queue_date from joined_at."""
     monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
     client = MagicMock()
     transaction = MagicMock()
@@ -238,6 +248,7 @@ def test_firestore_queue_check_in_persists_queue_date(monkeypatch):
 
 
 def test_firestore_queue_counts_use_aggregation_and_field_filters():
+    """Test that count_waiting_ahead uses server-side aggregation with proper filters."""
     client = MagicMock()
     collection = client.collection.return_value
     first_query = collection.where.return_value
@@ -270,6 +281,7 @@ def test_firestore_queue_counts_use_aggregation_and_field_filters():
 
 
 def test_firestore_waiting_count_uses_aggregation_and_field_filters():
+    """Test that count_waiting uses server-side aggregation with proper filters."""
     client = MagicMock()
     collection = client.collection.return_value
     first_query = collection.where.return_value
