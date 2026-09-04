@@ -66,6 +66,16 @@ def record_payment(
     }
 
     created = payment_repo.create_or_get_by_booking_id(payment_id, record)
+    if (
+        created["amount_paise"] != payment_data.amount_paise
+        or created["transaction_ref"] != payment_data.transaction_ref
+    ):
+        logger.warning(
+            "Payment values conflict with existing payment for booking %s; "
+            "returning payment %s",
+            payment_data.booking_id,
+            created["payment_id"],
+        )
     logger.info(
         "Recorded payment %s for booking %s",
         created["payment_id"],

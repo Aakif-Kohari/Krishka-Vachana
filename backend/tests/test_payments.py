@@ -80,7 +80,7 @@ def test_record_payment_success(client: TestClient, auth_headers, booking_repo):
 
 
 def test_record_payment_duplicate_returns_existing(
-    client: TestClient, auth_headers, booking_repo
+    client: TestClient, auth_headers, booking_repo, caplog
 ):
     """Repeated delivery for a booking returns the originally stored payment."""
     _create_booking(booking_repo)
@@ -98,6 +98,7 @@ def test_record_payment_duplicate_returns_existing(
     assert first.status_code == 201
     assert second.status_code == 201
     assert second.json() == first.json()
+    assert "Payment values conflict with existing payment for booking booking-1" in caplog.text
 
 
 def test_record_payment_invalid_booking(client: TestClient, auth_headers):
