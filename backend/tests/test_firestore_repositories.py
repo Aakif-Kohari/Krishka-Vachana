@@ -57,6 +57,7 @@ _VALID_CENTRE_DATA = {
 def test_history_repositories_apply_cursor_and_limit(
     repository_class, collection_name, cursor_field
 ):
+    """Verify that history repositories support cursor-based pagination."""
     client = MagicMock()
     collection = client.collection.return_value
     filtered_query = collection.where.return_value
@@ -161,6 +162,7 @@ def test_centre_get_returns_none_for_malformed_document():
 
 
 def test_cluster_delegate_authorization_fetches_all_farmers_in_one_call():
+    """Verify that delegate authorization checks are batched efficiently."""
     client = MagicMock()
     collection = MagicMock()
     client.collection.return_value = collection
@@ -196,6 +198,7 @@ def test_cluster_delegate_authorization_fetches_all_farmers_in_one_call():
     ],
 )
 def test_cluster_delegate_authorization_rejects_missing_or_invalid_grants(snapshots):
+    """Verify that delegate authorization rejects missing or invalid grants."""
     client = MagicMock()
     client.get_all.return_value = snapshots
 
@@ -250,6 +253,7 @@ def test_firestore_booking_serializes_date_and_creates_active_key(monkeypatch):
 
 
 def test_firestore_batch_booking_serializes_date(monkeypatch):
+    """Verify that batch bookings serialize dates correctly."""
     monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
     client = MagicMock()
     transaction = MagicMock()

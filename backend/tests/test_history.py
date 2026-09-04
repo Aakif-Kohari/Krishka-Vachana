@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 
 def test_get_history_empty(client: TestClient, auth_headers):
+    """Verify that history returns empty collections for a farmer with no data."""
     res = client.get("/api/v1/farmers/me/history", headers=auth_headers)
     assert res.status_code == 200
     data = res.json()
@@ -14,6 +15,7 @@ def test_get_history_empty(client: TestClient, auth_headers):
     assert data["page"] == {"page_size": 20, "next_cursor": None}
 
 def test_get_history_aggregates_data(client: TestClient, auth_headers, crop_repo, booking_repo, payment_repo):
+    """Verify that history aggregates crops, bookings, and payments."""
     # Seed some data for the test farmer matching exact schema requirements
     now = datetime.now(timezone.utc)
     
@@ -56,6 +58,7 @@ def test_get_history_aggregates_data(client: TestClient, auth_headers, crop_repo
 
 
 def test_get_history_paginates_each_collection(client: TestClient, auth_headers, crop_repo):
+    """Verify that history supports cursor-based pagination."""
     now = datetime.now(timezone.utc)
     for crop_id in ("c1", "c2", "c3"):
         crop_repo.create(
@@ -94,6 +97,7 @@ def test_get_history_paginates_each_collection(client: TestClient, auth_headers,
     ],
 )
 def test_get_history_rejects_invalid_pagination(client: TestClient, auth_headers, params):
+    """Verify that invalid pagination cursors are rejected."""
     response = client.get(
         "/api/v1/farmers/me/history", params=params, headers=auth_headers
     )

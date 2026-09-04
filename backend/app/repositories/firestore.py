@@ -114,6 +114,7 @@ class FirestoreFarmerRepository(FarmerRepository):
 
         @firestore.transactional
         def reserve(transaction) -> bool:
+            """Atomically reserve an Aadhaar hash for a farmer within a transaction."""
             reservation = reservation_ref.get(transaction=transaction)
             if reservation.exists:
                 return reservation.to_dict().get("farmer_id") == farmer_id
@@ -153,6 +154,7 @@ class FirestoreFarmerRepository(FarmerRepository):
 
         @firestore.transactional
         def create(transaction) -> Optional[Dict[str, Any]]:
+            """Atomically create a farmer record with Aadhaar reservation within a transaction."""
             farmer = farmer_ref.get(transaction=transaction)
             if farmer.exists:
                 return None
@@ -194,6 +196,7 @@ class FirestoreFarmerRepository(FarmerRepository):
 
         @firestore.transactional
         def issue(transaction) -> bool:
+            """Atomically issue an OTP challenge if the farmer is not in cooldown."""
             snapshot = farmer_ref.get(transaction=transaction)
             if not snapshot.exists:
                 return False
@@ -218,6 +221,7 @@ class FirestoreFarmerRepository(FarmerRepository):
 
         @firestore.transactional
         def consume(transaction) -> OtpVerificationResult:
+            """Atomically verify or consume one phone OTP attempt within a transaction."""
             snapshot = farmer_ref.get(transaction=transaction)
             if not snapshot.exists:
                 return OtpVerificationResult.NOT_FOUND
@@ -413,6 +417,7 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
 
         @firestore.transactional
         def create(transaction) -> Optional[Dict[str, Any]]:
+            """Atomically create a booking if capacity is available within a transaction."""
             existing_booking = booking_ref.get(transaction=transaction)
             if existing_booking.exists:
                 return None
@@ -473,6 +478,7 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
 
         @firestore.transactional
         def do_cancel(transaction) -> Optional[Dict[str, Any]]:
+            """Atomically cancel a booking and release its capacity within a transaction."""
             snapshot = booking_ref.get(transaction=transaction)
             if not snapshot.exists:
                 return None
@@ -630,6 +636,7 @@ class FirestoreQueueRepository(QueueRepository):
 
         @firestore.transactional
         def create(transaction) -> Optional[Dict[str, Any]]:
+            """Atomically check in a farmer and assign a queue sequence number within a transaction."""
             if active_farmer_ref.get(transaction=transaction).exists:
                 return None
             if active_booking_ref.get(transaction=transaction).exists:
@@ -792,6 +799,7 @@ class FirestorePaymentRepository(PaymentRepository):
 
         @firestore.transactional
         def create_or_get(transaction) -> Dict[str, Any]:
+            """Atomically create a payment or return an existing one for the booking within a transaction."""
             reservation = reservation_ref.get(transaction=transaction)
             if reservation.exists:
                 existing_id = reservation.to_dict()["payment_id"]

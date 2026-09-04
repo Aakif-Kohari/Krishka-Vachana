@@ -14,6 +14,7 @@ def _register_farmer(client, auth_headers):
 
 
 def test_register_crop_requires_farmer_profile_first(client, auth_headers):
+    """Verify that registering a crop requires the farmer to be registered first."""
     response = client.post(
         "/api/v1/crops", json={"crop_type": "wheat", "quantity_quintals": 12}, headers=auth_headers
     )
@@ -21,6 +22,7 @@ def test_register_crop_requires_farmer_profile_first(client, auth_headers):
 
 
 def test_register_crop_success(client, auth_headers):
+    """Verify successful crop registration."""
     _register_farmer(client, auth_headers)
     response = client.post(
         "/api/v1/crops", json={"crop_type": "wheat", "quantity_quintals": 18.5}, headers=auth_headers
@@ -32,6 +34,7 @@ def test_register_crop_success(client, auth_headers):
 
 
 def test_register_crop_invalid_quantity(client, auth_headers):
+    """Verify that invalid crop quantities are rejected."""
     _register_farmer(client, auth_headers)
     response = client.post(
         "/api/v1/crops", json={"crop_type": "wheat", "quantity_quintals": 0}, headers=auth_headers
@@ -43,6 +46,7 @@ def test_register_crop_invalid_quantity(client, auth_headers):
 
 
 def test_register_crop_other_requires_label(client, auth_headers):
+    """Verify that "other" crop type requires a label."""
     _register_farmer(client, auth_headers)
     response = client.post(
         "/api/v1/crops", json={"crop_type": "other", "quantity_quintals": 5}, headers=auth_headers
@@ -51,6 +55,7 @@ def test_register_crop_other_requires_label(client, auth_headers):
 
 
 def test_register_crop_other_rejects_blank_label(client, auth_headers):
+    """Verify that blank labels for "other" crop type are rejected."""
     _register_farmer(client, auth_headers)
     response = client.post(
         "/api/v1/crops",
@@ -61,6 +66,7 @@ def test_register_crop_other_rejects_blank_label(client, auth_headers):
 
 
 def test_register_crop_other_persists_trimmed_label(client, auth_headers):
+    """Verify that "other" crop labels are trimmed before storage."""
     _register_farmer(client, auth_headers)
     response = client.post(
         "/api/v1/crops",
@@ -72,6 +78,7 @@ def test_register_crop_other_persists_trimmed_label(client, auth_headers):
 
 
 def test_list_crops_for_farmer(client, auth_headers):
+    """Verify that a farmer can list their registered crops."""
     _register_farmer(client, auth_headers)
     client.post("/api/v1/crops", json={"crop_type": "wheat", "quantity_quintals": 10}, headers=auth_headers)
     client.post("/api/v1/crops", json={"crop_type": "paddy", "quantity_quintals": 5}, headers=auth_headers)

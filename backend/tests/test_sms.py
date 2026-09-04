@@ -27,6 +27,7 @@ def test_send_sms_posts_when_configured(monkeypatch):
     class _FakeResponse:
         """Mock HTTP response for testing."""
         def raise_for_status(self):
+            """Mock method to simulate HTTP status checks."""
             return None
 
     def fake_post(url, json, headers, timeout):
@@ -72,6 +73,7 @@ def test_send_sms_omits_auth_header_without_api_key(monkeypatch):
     class _FakeResponse:
         """Mock HTTP response for testing."""
         def raise_for_status(self):
+            """Mock method to simulate HTTP status checks."""
             return None
 
     def fake_post(url, json, headers, timeout):
@@ -103,9 +105,11 @@ def test_sms_gateway_timeout_allows_none_to_disable_httpx_timeout(monkeypatch):
 
     class _FakeResponse:
         def raise_for_status(self):
+            """Mock method to simulate HTTP status checks."""
             return None
 
     def fake_post(*_args, **kwargs):
+        """Mock POST request to capture timeout parameter."""
         captured["timeout"] = kwargs["timeout"]
         return _FakeResponse()
 

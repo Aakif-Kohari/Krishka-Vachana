@@ -21,17 +21,20 @@ WEBHOOK_SECRET = "q7L9vN2xK4mP8rT5wY1cF6hJ3sU0aB9dE2gI7kM"
     ["", "short", " " + "a" * 32, "a" * 32 + " "],
 )
 def test_production_settings_reject_invalid_webhook_secret_syntax(secret):
+    """Verify that production settings reject invalid webhook secret syntax."""
     with pytest.raises(ValidationError):
         Settings(environment="production", payment_gateway_webhook_secret=secret)
 
 
 def test_production_settings_accept_minimum_length_webhook_secret():
+    """Verify that production settings accept minimum-length webhook secrets."""
     assert Settings(
         environment="production", payment_gateway_webhook_secret="a" * 32
     ).payment_gateway_webhook_secret == "a" * 32
 
 
 def test_development_settings_allow_unset_webhook_secret():
+    """Verify that development settings allow unset webhook secrets."""
     assert Settings(
         environment="development", payment_gateway_webhook_secret=""
     ).payment_gateway_webhook_secret == ""
@@ -89,6 +92,7 @@ def test_record_payment_duplicate_returns_existing(
 
 
 def test_record_payment_invalid_booking(client: TestClient, auth_headers):
+    """Verify that recording a payment for an invalid booking fails."""
     res = client.post(
         "/api/v1/payments",
         json={"booking_id": "missing", "amount_paise": 500000, "transaction_ref": "TXN123"},
@@ -98,6 +102,7 @@ def test_record_payment_invalid_booking(client: TestClient, auth_headers):
 
 
 def test_record_payment_rejects_non_integer_amount(client: TestClient, auth_headers):
+    """Verify that non-integer payment amounts are rejected."""
     res = client.post(
         "/api/v1/payments",
         json={"booking_id": "booking-1", "amount_paise": 5000.5, "transaction_ref": "TXN123"},
@@ -109,6 +114,7 @@ def test_record_payment_rejects_non_integer_amount(client: TestClient, auth_head
 def test_mock_payment_is_rejected_outside_development(
     client: TestClient, auth_headers, booking_repo
 ):
+    """Verify that mock payment recording is rejected outside development."""
     _create_booking(booking_repo)
     app.dependency_overrides[get_settings] = lambda: Settings(environment="production")
     try:
@@ -123,6 +129,7 @@ def test_mock_payment_is_rejected_outside_development(
 
 
 def test_signed_gateway_webhook_records_payment(client: TestClient, booking_repo):
+    """Verify that a properly signed gateway webhook records a payment."""
     _create_booking(booking_repo)
     # Use a high-entropy 64-char hex string to bypass the "predictable secret" validator
     secret = "f47ac10b58cc4372a5670e02b2c3d4798f4e2d1c9b7a6f5e3d2c1b0a9f8e7d6c"
@@ -152,6 +159,7 @@ def test_signed_gateway_webhook_records_payment(client: TestClient, booking_repo
 
 
 def test_gateway_webhook_rejects_invalid_signature(client: TestClient, booking_repo):
+    """Verify that gateway webhooks with invalid signatures are rejected."""
     _create_booking(booking_repo)
     # Use a high-entropy 64-char hex string to bypass the "predictable secret" validator
     secret = "a1b2c3d4e5f647a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f123"
@@ -204,6 +212,7 @@ def test_concurrent_payment_insertions_return_one_record(payment_repo):
     now = datetime.now(timezone.utc)
 
     def create(payment_id):
+        """Helper to create or get a payment record."""
         return payment_repo.create_or_get_by_booking_id(
             payment_id,
             {

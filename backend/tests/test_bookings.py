@@ -50,6 +50,7 @@ def _tiny_centre_repo(capacity: int = 1) -> InMemoryCentreRepository:
 
 
 def test_book_slot_requires_farmer_profile_first(client, auth_headers, seeded_centre_id):
+    """Verify that booking a slot requires the farmer to register their profile first."""
     response = client.post(
         "/api/v1/bookings",
         json={"centre_id": seeded_centre_id, "slot_date": TOMORROW, "slot_window": "08:00-10:00"},
@@ -59,11 +60,13 @@ def test_book_slot_requires_farmer_profile_first(client, auth_headers, seeded_ce
 
 
 def test_book_slot_success(client, auth_headers, seeded_centre_id, monkeypatch):
+    """Verify successful slot booking for a registered farmer."""
     _register_farmer(client, auth_headers)
     started = Event()
     release = Event()
 
     def slow_notification(*_args):
+        """Mock notification function to simulate slow delivery."""
         started.set()
         release.wait(timeout=2)
 
@@ -93,6 +96,7 @@ def test_book_slot_success(client, auth_headers, seeded_centre_id, monkeypatch):
 
 
 def test_book_slot_unknown_centre_is_404(client, auth_headers):
+    """Verify that booking at a non-existent centre returns 404."""
     _register_farmer(client, auth_headers)
     response = client.post(
         "/api/v1/bookings",
@@ -103,6 +107,7 @@ def test_book_slot_unknown_centre_is_404(client, auth_headers):
 
 
 def test_book_slot_invalid_window_is_422(client, auth_headers, seeded_centre_id):
+    """Verify that an invalid slot window format returns 422."""
     _register_farmer(client, auth_headers)
     response = client.post(
         "/api/v1/bookings",
@@ -113,6 +118,7 @@ def test_book_slot_invalid_window_is_422(client, auth_headers, seeded_centre_id)
 
 
 def test_book_slot_rejects_past_date(client, auth_headers, seeded_centre_id):
+    """Verify that booking a slot in the past returns 422."""
     _register_farmer(client, auth_headers)
     response = client.post(
         "/api/v1/bookings",
@@ -123,6 +129,7 @@ def test_book_slot_rejects_past_date(client, auth_headers, seeded_centre_id):
 
 
 def test_book_slot_resolves_centre_before_rejecting_past_date(client, auth_headers):
+    """Verify that unknown centre errors take precedence over past date validation."""
     _register_farmer(client, auth_headers)
     response = client.post(
         "/api/v1/bookings",
@@ -133,6 +140,7 @@ def test_book_slot_resolves_centre_before_rejecting_past_date(client, auth_heade
 
 
 def test_book_slot_rejects_unknown_crop_id(client, auth_headers, seeded_centre_id):
+    """Verify that referencing a non-existent crop ID returns 404."""
     _register_farmer(client, auth_headers)
     response = client.post(
         "/api/v1/bookings",
@@ -148,6 +156,7 @@ def test_book_slot_rejects_unknown_crop_id(client, auth_headers, seeded_centre_i
 
 
 def test_book_slot_links_registered_crop(client, auth_headers, seeded_centre_id):
+    """Verify that a booking can reference a registered crop."""
     _register_farmer(client, auth_headers)
     crop_response = client.post(
         "/api/v1/crops", json={"crop_type": "wheat", "quantity_quintals": 10}, headers=auth_headers
@@ -169,6 +178,7 @@ def test_book_slot_links_registered_crop(client, auth_headers, seeded_centre_id)
 
 
 def test_book_slot_rejects_duplicate_for_same_farmer(client, auth_headers, seeded_centre_id):
+    """Verify that a farmer cannot book the same slot twice."""
     _register_farmer(client, auth_headers)
     payload = {"centre_id": seeded_centre_id, "slot_date": TOMORROW, "slot_window": "08:00-10:00"}
     first = client.post("/api/v1/bookings", json=payload, headers=auth_headers)
@@ -179,6 +189,7 @@ def test_book_slot_rejects_duplicate_for_same_farmer(client, auth_headers, seede
 
 
 def test_list_my_bookings(client, auth_headers, seeded_centre_id):
+    """Verify that a farmer can list their bookings."""
     _register_farmer(client, auth_headers)
     client.post(
         "/api/v1/bookings",
@@ -191,6 +202,7 @@ def test_list_my_bookings(client, auth_headers, seeded_centre_id):
 
 
 def test_get_booking_by_id(client, auth_headers, seeded_centre_id):
+    """Verify that a farmer can retrieve a specific booking by ID."""
     _register_farmer(client, auth_headers)
     created = client.post(
         "/api/v1/bookings",
@@ -203,11 +215,13 @@ def test_get_booking_by_id(client, auth_headers, seeded_centre_id):
 
 
 def test_get_booking_not_found(client, auth_headers):
+    """Verify that fetching a non-existent booking returns 404."""
     response = client.get("/api/v1/bookings/does-not-exist", headers=auth_headers)
     assert response.status_code == 404
 
 
 def test_cancel_booking(client, auth_headers, seeded_centre_id):
+    """Verify that a farmer can cancel their own booking."""
     _register_farmer(client, auth_headers)
     created = client.post(
         "/api/v1/bookings",
@@ -221,6 +235,7 @@ def test_cancel_booking(client, auth_headers, seeded_centre_id):
 
 
 def test_cancel_frees_the_slot_for_a_rebooking_by_the_same_farmer(client, auth_headers, seeded_centre_id):
+    """Verify that cancelling a booking allows the same farmer to rebook the slot."""
     _register_farmer(client, auth_headers)
     payload = {"centre_id": seeded_centre_id, "slot_date": TOMORROW, "slot_window": "08:00-10:00"}
     created = client.post("/api/v1/bookings", json=payload, headers=auth_headers).json()
@@ -232,6 +247,7 @@ def test_cancel_frees_the_slot_for_a_rebooking_by_the_same_farmer(client, auth_h
 
 
 def test_cancel_unknown_booking_is_404(client, auth_headers):
+    """Verify that cancelling a non-existent booking returns 404."""
     response = client.post("/api/v1/bookings/does-not-exist/cancel", headers=auth_headers)
     assert response.status_code == 404
 
@@ -243,6 +259,7 @@ def test_cancel_unknown_booking_is_404(client, auth_headers):
 
 
 def test_capacity_enforced_once_slot_is_full():
+    """Verify that capacity limits prevent bookings once a slot is full."""
     centre_repo = _tiny_centre_repo(capacity=1)
     booking_repo = InMemorySlotBookingRepository()
     farmer_repo = InMemoryFarmerRepository()
@@ -261,9 +278,11 @@ def test_capacity_enforced_once_slot_is_full():
 
 
 def test_booking_date_uses_procurement_centre_business_timezone(monkeypatch):
+    """Verify that past-date validation uses the procurement centre's timezone."""
     class FixedDateTime(datetime):
         @classmethod
         def now(cls, tz=None):
+            """Return a fixed datetime to simulate a specific date."""
             assert tz == slot_service.PROCUREMENT_CENTRE_TIMEZONE
             return cls(2026, 9, 3, 0, 30, tzinfo=tz)
 
@@ -284,6 +303,7 @@ def test_booking_date_uses_procurement_centre_business_timezone(monkeypatch):
 
 
 def test_concurrent_booking_respects_capacity():
+    """Verify that concurrent booking attempts from multiple farmers respect capacity limits."""
     centre_repo = _tiny_centre_repo(capacity=1)
     booking_repo = InMemorySlotBookingRepository()
     farmer_repo = InMemoryFarmerRepository()
@@ -296,6 +316,7 @@ def test_concurrent_booking_respects_capacity():
     )
 
     def attempt(farmer_id):
+        """Attempt to book a slot for the given farmer."""
         try:
             return slot_service.book_slot(booking_repo, centre_repo, farmer_repo, crop_repo, farmer_id, payload)
         except ConflictError:
@@ -308,6 +329,7 @@ def test_concurrent_booking_respects_capacity():
 
 
 def test_concurrent_same_farmer_booking_allows_exactly_one_active_booking():
+    """Verify that concurrent attempts by the same farmer to book the same slot succeed only once."""
     centre_repo = _tiny_centre_repo(capacity=2)
     booking_repo = InMemorySlotBookingRepository()
     farmer_repo = InMemoryFarmerRepository()
@@ -320,6 +342,7 @@ def test_concurrent_same_farmer_booking_allows_exactly_one_active_booking():
     )
 
     def attempt():
+        """Attempt to book a slot for the same farmer."""
         try:
             return slot_service.book_slot(
                 booking_repo, centre_repo, farmer_repo, crop_repo, "farmer-a", payload
@@ -337,6 +360,7 @@ def test_concurrent_same_farmer_booking_allows_exactly_one_active_booking():
 
 
 def test_cancel_frees_capacity_for_a_different_farmer():
+    """Verify that cancelling a booking releases capacity for another farmer."""
     centre_repo = _tiny_centre_repo(capacity=1)
     booking_repo = InMemorySlotBookingRepository()
     farmer_repo = InMemoryFarmerRepository()
@@ -355,6 +379,7 @@ def test_cancel_frees_capacity_for_a_different_farmer():
 
 
 def test_cannot_cancel_someone_elses_booking():
+    """Verify that a farmer cannot cancel another farmer's booking."""
     centre_repo = _tiny_centre_repo(capacity=1)
     booking_repo = InMemorySlotBookingRepository()
     farmer_repo = InMemoryFarmerRepository()
