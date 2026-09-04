@@ -14,9 +14,9 @@ This directory contains **backend only**. It does not touch:
 - ML models - AI/ML role (this backend exposes a placeholder integration
   point for their predictions once ready; see roadmap below)
 
-## Current status: Phase 3 of 4 (~75%)
+## Current status: Phase 4 of 4 (100%)
 
-Implemented so far - the first three stages of the product flow
+Implemented so far - all four stages of the product flow
 (`Farmer -> Smart Slot -> Predicted Arrival -> Dynamic Queue -> ...`),
 built to be deployable as-is rather than a throwaway prototype:
 
@@ -99,7 +99,7 @@ built to be deployable as-is rather than a throwaway prototype:
 | ~~3~~ | ~~Dynamic Queue system (position, printable token generation), SMS/OTP integration~~ done |
 | ~~4~~ | ~~Payment tracking, Historical farm record, Village Cluster Booking, polish~~ done |
 
-## API surface (Phase 1 + 2 + 3)
+## API surface (Phase 1 + 2 + 3 + 4)
 
 All endpoints are versioned under `/api/v1`. Farmer endpoints require
 `Authorization: Bearer <firebase-id-token>`; health endpoints are public, and
@@ -203,7 +203,7 @@ docker run -p 8000:8000 \
   -e ENVIRONMENT=production \
   -e ENABLE_DOCS=false \
   -e AADHAAR_HMAC_SECRET_NAME=projects/PROJECT_ID/secrets/aadhaar-hmac-key/versions/1 \
-  -e PAYMENT_GATEWAY_WEBHOOK_SECRET \
+  -e PAYMENT_GATEWAY_WEBHOOK_SECRET="${PAYMENT_GATEWAY_WEBHOOK_SECRET}" \
   -e FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase.json \
   -e GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcp-service-account.json \
   -v /path/to/firebase-service-account.json:/secrets/firebase.json:ro \

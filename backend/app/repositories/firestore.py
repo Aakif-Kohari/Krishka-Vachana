@@ -552,6 +552,9 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
             )
             for d in data_list
         ]
+        all_refs = booking_refs + active_refs
+        if len(set(all_refs)) != len(all_refs):
+            return None
 
         transaction = self._client.transaction()
 
@@ -569,9 +572,7 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
             if current + len(booking_ids) > capacity:
                 return None
 
-            booking_snapshots = self._client.get_all(
-                booking_refs + active_refs, transaction=transaction
-            )
+            booking_snapshots = self._client.get_all(all_refs, transaction=transaction)
             if any(snapshot.exists for snapshot in booking_snapshots):
                 return None
 

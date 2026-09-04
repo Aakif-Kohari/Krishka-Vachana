@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -256,7 +256,7 @@ def test_firestore_booking_serializes_date_and_creates_active_key(monkeypatch):
 
 
 def test_firestore_batch_booking_serializes_date(monkeypatch):
-    """Verify that batch bookings serialize dates correctly."""
+    """Verify all batch reads and writes preserve positional booking data."""
     monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
     client = MagicMock()
     transaction = MagicMock()
@@ -267,42 +267,124 @@ def test_firestore_batch_booking_serializes_date(monkeypatch):
         ACTIVE_SLOT_BOOKINGS_COLLECTION: MagicMock(),
     }
     client.collection.side_effect = collections.__getitem__
-    booking_ref = collections[SLOT_BOOKINGS_COLLECTION].document.return_value
-    collections[SLOT_CAPACITY_COUNTERS_COLLECTION].document.return_value.get.return_value = (
-        _snapshot(exists=False)
-    )
-    active_ref = collections[ACTIVE_SLOT_BOOKINGS_COLLECTION].document.return_value
-    client.get_all.return_value = [
-        _snapshot(exists=False),
-        _snapshot(exists=False),
+    booking_refs = [MagicMock(name="booking_ref_1"), MagicMock(name="booking_ref_2")]
+    active_refs = [MagicMock(name="active_ref_1"), MagicMock(name="active_ref_2")]
+    collections[SLOT_BOOKINGS_COLLECTION].document.side_effect = booking_refs
+    collections[ACTIVE_SLOT_BOOKINGS_COLLECTION].document.side_effect = active_refs
+    counter_ref = collections[SLOT_CAPACITY_COUNTERS_COLLECTION].document.return_value
+    counter_ref.get.return_value = _snapshot(exists=True, data={"count": 1})
+    client.get_all.return_value = [_snapshot(exists=False) for _ in range(4)]
+
+    data_list = [
+        {
+            "farmer_id": "farmer-1",
+            "centre_id": "centre-id",
+            "slot_date": date(2026, 9, 3),
+            "slot_window": "08:00-10:00",
+            "status": "booked",
+        },
+        {
+            "farmer_id": "farmer-2",
+            "centre_id": "centre-id",
+            "slot_date": date(2026, 9, 3),
+            "slot_window": "08:00-10:00",
+            "status": "booked",
+        },
     ]
 
     result = FirestoreSlotBookingRepository(client).create_batch_atomic(
-        ["booking-id"],
+        ["booking-1", "booking-2"],
+        3,
+        data_list,
+    )
+
+    expected_records = [
+        {"booking_id": booking_id, **data, "slot_date": "2026-09-03"}
+        for booking_id, data in zip(["booking-1", "booking-2"], data_list)
+    ]
+    assert result == expected_records
+    counter_ref.get.assert_called_once_with(transaction=transaction)
+    client.get_all.assert_called_once_with(
+        booking_refs + active_refs, transaction=transaction
+    )
+    transaction.set.assert_called_once_with(counter_ref, {"count": 3}, merge=True)
+    assert transaction.create.call_args_list == [
+        call(booking_refs[0], expected_records[0]),
+        call(
+            active_refs[0],
+            {
+                "booking_id": "booking-1",
+                "farmer_id": "farmer-1",
+                "centre_id": "centre-id",
+                "slot_date": "2026-09-03",
+                "slot_window": "08:00-10:00",
+            },
+        ),
+        call(booking_refs[1], expected_records[1]),
+        call(
+            active_refs[1],
+            {
+                "booking_id": "booking-2",
+                "farmer_id": "farmer-2",
+                "centre_id": "centre-id",
+                "slot_date": "2026-09-03",
+                "slot_window": "08:00-10:00",
+            },
+        ),
+    ]
+    for ref in booking_refs + active_refs:
+        ref.get.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("booking_ids", "farmer_ids"),
+    [
+        (["booking-1", "booking-1"], ["farmer-1", "farmer-2"]),
+        (["booking-1", "booking-2"], ["farmer-1", "farmer-1"]),
+    ],
+)
+def test_firestore_batch_booking_rejects_duplicate_document_refs(
+    booking_ids, farmer_ids
+):
+    """Verify duplicate booking or active-booking paths are rejected before writes."""
+    client = MagicMock()
+    collections = {
+        SLOT_BOOKINGS_COLLECTION: MagicMock(),
+        SLOT_CAPACITY_COUNTERS_COLLECTION: MagicMock(),
+        ACTIVE_SLOT_BOOKINGS_COLLECTION: MagicMock(),
+    }
+    client.collection.side_effect = collections.__getitem__
+    booking_refs_by_id = {
+        booking_id: MagicMock(name=f"booking_ref_{booking_id}")
+        for booking_id in set(booking_ids)
+    }
+    active_refs_by_farmer = {
+        farmer_id: MagicMock(name=f"active_ref_{farmer_id}")
+        for farmer_id in set(farmer_ids)
+    }
+    active_refs = iter(active_refs_by_farmer[farmer_id] for farmer_id in farmer_ids)
+    collections[SLOT_BOOKINGS_COLLECTION].document.side_effect = booking_refs_by_id.get
+    collections[ACTIVE_SLOT_BOOKINGS_COLLECTION].document.side_effect = (
+        lambda _doc_id: next(active_refs)
+    )
+
+    result = FirestoreSlotBookingRepository(client).create_batch_atomic(
+        booking_ids,
         2,
         [
             {
-                "farmer_id": "farmer-id",
+                "farmer_id": farmer_id,
                 "centre_id": "centre-id",
                 "slot_date": date(2026, 9, 3),
                 "slot_window": "08:00-10:00",
-                "status": "booked",
             }
+            for farmer_id in farmer_ids
         ],
     )
 
-    assert result[0]["slot_date"] == "2026-09-03"
-    booking_write = next(
-        data
-        for ref, data in (call.args for call in transaction.create.call_args_list)
-        if ref is booking_ref
-    )
-    assert booking_write["slot_date"] == "2026-09-03"
-    client.get_all.assert_called_once_with(
-        [booking_ref, active_ref], transaction=transaction
-    )
-    booking_ref.get.assert_not_called()
-    active_ref.get.assert_not_called()
+    assert result is None
+    client.transaction.assert_not_called()
+    client.get_all.assert_not_called()
 
 
 def test_firestore_batch_booking_rejects_mixed_slots_before_creating_references():
