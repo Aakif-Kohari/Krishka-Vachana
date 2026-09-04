@@ -73,5 +73,10 @@ def get_my_history(
     booking_repo: SlotBookingRepository = Depends(get_slot_booking_repository),
     payment_repo: PaymentRepository = Depends(get_payment_repository),
 ) -> FarmHistoryOut:
-    """Get the authenticated farmer's aggregated historical record."""
+    """
+    Retrieve the authenticated farmer's aggregated history.
+    
+    Returns:
+        FarmHistoryOut: The farmer's crop, booking, and payment history.
+    """
     return history_service.get_farmer_history(farmer_uid, crop_repo, booking_repo, payment_repo)

@@ -23,10 +23,22 @@ def record_payment(
     payment_repo: PaymentRepository,
     booking_repo: SlotBookingRepository,
 ) -> PaymentOut:
-    """Record a payment against a specific booking.
+    """
+    Record a payment for a farmer's booking.
     
-    Verifies the booking exists and belongs to the farmer, checks for
-    duplicate payments (idempotency), and creates the payment record.
+    Parameters:
+        payment_data (PaymentCreate): Payment details, including the booking,
+            amount, and transaction reference.
+        farmer_uid (str): Identifier of the farmer making the payment.
+        payment_repo (PaymentRepository): Repository used to access and store payments.
+        booking_repo (SlotBookingRepository): Repository used to verify the booking.
+    
+    Returns:
+        PaymentOut: The recorded payment with a successful status and processing timestamp.
+    
+    Raises:
+        NotFoundError: If the booking does not exist or does not belong to the farmer.
+        ConflictError: If a payment has already been recorded for the booking.
     """
     # 1. Verify the booking exists and belongs to this farmer
     booking = booking_repo.get(payment_data.booking_id)

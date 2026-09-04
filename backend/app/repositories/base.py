@@ -149,10 +149,15 @@ class SlotBookingRepository(ABC):
 
     @abstractmethod
     def cancel(self, booking_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
-        """Cancel a booking owned by farmer_id and free its capacity.
-        Returns the updated record, or None if not found or not owned by
-        farmer_id (callers should treat both as 404, not 403 - see
-        app/services/slot_service.py for why).
+        """Cancel a booking owned by the specified farmer and release its capacity.
+        
+        Parameters:
+            booking_id (str): The booking to cancel.
+            farmer_id (str): The farmer who owns the booking.
+        
+        Returns:
+            Optional[Dict[str, Any]]: The updated booking record, or None if the booking
+            does not exist or is not owned by the farmer.
         """
         ...
 
@@ -160,9 +165,16 @@ class SlotBookingRepository(ABC):
     def create_batch_atomic(
         self, booking_ids: List[str], capacity: int, data_list: List[Dict[str, Any]]
     ) -> Optional[List[Dict[str, Any]]]:
-        """Atomically create a batch of bookings if capacity is available for all.
-        Returns None if capacity is insufficient for the entire batch, ensuring
-        no partial state is left behind (all-or-nothing).
+        """
+        Atomically create a batch of bookings when capacity is available for the entire batch.
+        
+        Parameters:
+            booking_ids (List[str]): Identifiers for the bookings to create.
+            capacity (int): Maximum number of bookings allowed.
+            data_list (List[Dict[str, Any]]): Data for each booking.
+        
+        Returns:
+            Optional[List[Dict[str, Any]]]: All created bookings, or None when capacity is insufficient for the batch.
         """
         ...
 
@@ -222,11 +234,18 @@ class QueueRepository(ABC):
     def resolve(
         self, queue_id: str, farmer_id: str, new_status: str, resolved_at: datetime
     ) -> Optional[Dict[str, Any]]:
-        """Move a farmer's own waiting entry to a terminal status ("served" or
-        "left") and free its farmer/booking reservations. Returns the
-        updated record, or None if not found, not owned by farmer_id, or
-        already resolved (callers should treat all as 404 - same reasoning
-        as SlotBookingRepository.cancel).
+        """
+        Resolve a farmer's waiting queue entry with a terminal status.
+        
+        Parameters:
+            queue_id (str): Identifier of the queue entry.
+            farmer_id (str): Identifier of the farmer who owns the entry.
+            new_status (str): Terminal status to assign, either ``"served"`` or ``"left"``.
+            resolved_at (datetime): Time at which the entry is resolved.
+        
+        Returns:
+            Optional[Dict[str, Any]]: The updated queue entry, or ``None`` if the entry
+            does not exist, belongs to another farmer, or has already been resolved.
         """
         ...
 
@@ -240,15 +259,40 @@ class PaymentRepository(ABC):
 
     @abstractmethod
     def get_by_booking_id(self, booking_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve a payment record by its associated booking ID."""
+        """
+        Retrieve a payment record associated with a booking.
+        
+        Parameters:
+        	booking_id (str): The booking identifier.
+        
+        Returns:
+        	Optional[Dict[str, Any]]: The payment record, or None if no payment is associated with the booking.
+        """
         ...
 
     @abstractmethod
     def create(self, payment_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new payment record."""
+        """
+        Create a payment record with the specified identifier and data.
+        
+        Parameters:
+            payment_id (str): Unique identifier for the payment.
+            data (Dict[str, Any]): Payment record fields.
+        
+        Returns:
+            Dict[str, Any]: The created payment record.
+        """
         ...
 
     @abstractmethod
     def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all payments for a farmer."""
+        """
+        List all payments associated with a farmer.
+        
+        Parameters:
+            farmer_id (str): Identifier of the farmer.
+        
+        Returns:
+            List[Dict[str, Any]]: Payment records for the farmer.
+        """
         ...

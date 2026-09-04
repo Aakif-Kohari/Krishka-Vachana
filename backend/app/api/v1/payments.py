@@ -18,7 +18,16 @@ def record_payment_endpoint(
     payment_repo: PaymentRepository = Depends(get_payment_repository),
     booking_repo: SlotBookingRepository = Depends(get_slot_booking_repository),
 ) -> PaymentOut:
-    """Record a payment against a booking (simulates a payment gateway webhook)."""
+    """
+    Record a payment for a booking on behalf of the authenticated farmer.
+    
+    Parameters:
+        payment_data (PaymentCreate): Payment and booking details to record.
+        farmer_uid (str): Identifier of the authenticated farmer.
+    
+    Returns:
+        PaymentOut: The recorded payment.
+    """
     return payment_service.record_payment(payment_data, farmer_uid, payment_repo, booking_repo)
 
 

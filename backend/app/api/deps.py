@@ -40,7 +40,22 @@ def get_current_farmer_uid(
     settings: Settings = Depends(get_settings),
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> str:
-    """Extract and verify the farmer's UID from the Firebase ID token in the Authorization header."""
+    """
+    Extract and verify the farmer UID from a Bearer token in the Authorization header.
+    
+    In development, an unverified token may be used as the UID when the authentication
+    fallback is enabled and Firebase is not configured.
+    
+    Parameters:
+        authorization (str): Authorization header containing a Bearer token.
+    
+    Returns:
+        str: The authenticated farmer's UID.
+    
+    Raises:
+        UnauthorizedError: If the header or token is invalid, authentication is
+            unavailable, or the token does not contain a UID.
+    """
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer":
         raise UnauthorizedError("Missing or malformed Authorization header")
@@ -146,7 +161,15 @@ def get_payment_repository(
     firebase: FirebaseState = Depends(get_firebase_state),
     settings: Settings = Depends(get_settings),
 ) -> PaymentRepository:
-    """Return a payment repository (Firestore-backed or in-memory fallback)."""
+    """
+    Selects the payment repository for the current application environment.
+    
+    Returns:
+    	PaymentRepository: A Firestore-backed repository when Firestore is available; otherwise, an in-memory repository in development.
+    
+    Raises:
+    	ServiceUnavailableError: If Firestore is unavailable outside development.
+    """
     client = firebase.firestore_client()
     if client is None:
         if settings.is_development:

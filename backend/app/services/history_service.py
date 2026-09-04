@@ -16,7 +16,12 @@ def get_farmer_history(
     booking_repo: SlotBookingRepository,
     payment_repo: PaymentRepository,
 ) -> FarmHistoryOut:
-    """Fetch and aggregate all historical records for a farmer."""
+    """
+    Aggregate a farmer's crop, booking, and payment history.
+    
+    Returns:
+        FarmHistoryOut: The farmer's validated crops, slot bookings, and payments.
+    """
     crops_data = crop_repo.list_by_farmer(farmer_uid)
     bookings_data = booking_repo.list_by_farmer(farmer_uid)
     payments_data = payment_repo.list_by_farmer(farmer_uid)

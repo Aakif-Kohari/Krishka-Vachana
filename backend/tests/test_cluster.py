@@ -41,6 +41,9 @@ def test_cluster_booking_mixed_villages_fails(client: TestClient, auth_headers, 
     assert res.status_code == 400 # Bad Request
 
 def test_cluster_booking_insufficient_capacity_rolls_back(client: TestClient, auth_headers, farmer_repo, booking_repo):
+    """
+    Verify that a cluster booking exceeding slot capacity is rejected without creating partial bookings.
+    """
     farmer_repo.create("f1", {"full_name": "F1", "village": "V1"})
     farmer_repo.create("f2", {"full_name": "F2", "village": "V1"})
     

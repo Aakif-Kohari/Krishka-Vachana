@@ -284,7 +284,16 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
             return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
 
     def cancel(self, booking_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
-        """Cancel a booking and free its slot capacity."""
+        """
+        Cancel a farmer-owned booking and release its reserved slot capacity.
+        
+        Parameters:
+            booking_id (str): Identifier of the booking to cancel.
+            farmer_id (str): Identifier of the farmer who owns the booking.
+        
+        Returns:
+            Optional[Dict[str, Any]]: The updated booking with status ``"cancelled"``, or ``None`` if the booking does not exist or belongs to another farmer.
+        """
         with self._lock:
             record = self._data.get(booking_id)
             if record is None or record.get("farmer_id") != farmer_id:
@@ -304,7 +313,17 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
     def create_batch_atomic(
         self, booking_ids: List[str], capacity: int, data_list: List[Dict[str, Any]]
     ) -> Optional[List[Dict[str, Any]]]:
-        """Atomically create a batch of bookings if capacity is available."""
+        """
+        Atomically creates multiple bookings when all inputs are valid, capacity is available, and no booking or farmer reservation conflicts exist.
+        
+        Parameters:
+        	booking_ids (List[str]): Unique identifiers for the bookings to create.
+        	capacity (int): Maximum number of active bookings allowed for the slot.
+        	data_list (List[Dict[str, Any]]): Booking data corresponding positionally to `booking_ids`.
+        
+        Returns:
+        	Optional[List[Dict[str, Any]]]: The created booking records, or `None` if the inputs are mismatched or empty, capacity is insufficient, or a booking conflict exists.
+        """
         with self._lock:
             if len(booking_ids) != len(data_list) or not booking_ids:
                 return None
@@ -457,7 +476,16 @@ class InMemoryPaymentRepository(PaymentRepository):
             return None
 
     def create(self, payment_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new payment record."""
+        """
+        Create and store a payment record.
+        
+        Parameters:
+        	payment_id (str): Unique identifier for the payment.
+        	data (Dict[str, Any]): Payment fields to include in the record.
+        
+        Returns:
+        	Dict[str, Any]: A copy of the stored payment record.
+        """
         with self._lock:
             record = {"payment_id": payment_id, **data}
             self._data[payment_id] = record

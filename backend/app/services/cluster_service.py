@@ -23,11 +23,22 @@ def create_cluster_booking(
     booking_repo: SlotBookingRepository,
     centre_repo: CentreRepository,
 ) -> ClusterBookingOut:
-    """Create a batch of bookings for a village cluster.
+    """
+    Create atomic bookings for all farmers in a village cluster.
     
-    1. Validates all farmers exist and belong to the claimed village.
-    2. Verifies the centre exists.
-    3. Atomically reserves capacity for the entire group.
+    Parameters:
+    	cluster_data (ClusterBookingCreate): Cluster details, including the farmers, village, centre, date, and slot window.
+    	farmer_repo (FarmerRepository): Repository used to verify farmer records.
+    	booking_repo (SlotBookingRepository): Repository used to reserve the group’s slot capacity.
+    	centre_repo (CentreRepository): Repository used to verify the booking centre and retrieve its slot capacity.
+    
+    Returns:
+    	ClusterBookingOut: Details of the created cluster booking and its individual booking IDs.
+    
+    Raises:
+    	NotFoundError: If a farmer or booking centre does not exist.
+    	AppError: If a farmer does not belong to the requested village.
+    	ConflictError: If capacity is insufficient for the entire group.
     """
     # 1. Validate all farmers exist and belong to the claimed village
     for fid in cluster_data.farmer_ids:
