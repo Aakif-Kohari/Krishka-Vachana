@@ -3,9 +3,12 @@ from unittest.mock import MagicMock
 
 from app.repositories import firestore as firestore_module
 from app.repositories.firestore import (
+    ACTIVE_BOOKING_QUEUE_COLLECTION,
+    ACTIVE_FARMER_QUEUE_COLLECTION,
     ACTIVE_SLOT_BOOKINGS_COLLECTION,
     CENTRES_COLLECTION,
     FARMERS_COLLECTION,
+    QUEUE_DAILY_COUNTERS_COLLECTION,
     QUEUE_ENTRIES_COLLECTION,
     SLOT_BOOKINGS_COLLECTION,
     SLOT_CAPACITY_COUNTERS_COLLECTION,
@@ -189,16 +192,64 @@ def test_firestore_phone_otp_attempt_is_consumed_in_transaction(monkeypatch):
     )
 
 
+def test_firestore_queue_check_in_persists_queue_date(monkeypatch):
+    monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
+    client = MagicMock()
+    transaction = MagicMock()
+    client.transaction.return_value = transaction
+
+    collections = {
+        QUEUE_ENTRIES_COLLECTION: MagicMock(),
+        ACTIVE_FARMER_QUEUE_COLLECTION: MagicMock(),
+        ACTIVE_BOOKING_QUEUE_COLLECTION: MagicMock(),
+        QUEUE_DAILY_COUNTERS_COLLECTION: MagicMock(),
+    }
+    client.collection.side_effect = collections.__getitem__
+    entry_ref = collections[QUEUE_ENTRIES_COLLECTION].document.return_value
+    farmer_ref = collections[ACTIVE_FARMER_QUEUE_COLLECTION].document.return_value
+    booking_ref = collections[ACTIVE_BOOKING_QUEUE_COLLECTION].document.return_value
+    counter_ref = collections[QUEUE_DAILY_COUNTERS_COLLECTION].document.return_value
+    farmer_ref.get.return_value = _snapshot(exists=False)
+    booking_ref.get.return_value = _snapshot(exists=False)
+    counter_ref.get.return_value = _snapshot(exists=False)
+
+    result = FirestoreQueueRepository(client).create_check_in(
+        "queue-id",
+        "centre-id",
+        {
+            "farmer_id": "farmer-id",
+            "booking_id": "booking-id",
+            "centre_id": "centre-id",
+            "status": "waiting",
+            "joined_at": datetime(2026, 9, 4, 8, tzinfo=timezone.utc),
+        },
+    )
+
+    assert result["queue_date"] == "2026-09-04"
+    collections[QUEUE_DAILY_COUNTERS_COLLECTION].document.assert_called_once_with(
+        "centre-id_2026-09-04"
+    )
+    entry_write = next(
+        data
+        for ref, data in (call.args for call in transaction.create.call_args_list)
+        if ref is entry_ref
+    )
+    assert entry_write["queue_date"] == "2026-09-04"
+
+
 def test_firestore_queue_counts_use_aggregation_and_field_filters():
     client = MagicMock()
     collection = client.collection.return_value
     first_query = collection.where.return_value
     second_query = first_query.where.return_value
-    final_query = second_query.where.return_value
+    third_query = second_query.where.return_value
+    final_query = third_query.where.return_value
     count_value = MagicMock(value=2)
     final_query.count.return_value.get.return_value = [[count_value]]
 
-    result = FirestoreQueueRepository(client).count_waiting_ahead("centre-id", 3)
+    result = FirestoreQueueRepository(client).count_waiting_ahead(
+        "centre-id", "2026-09-04", 3
+    )
 
     assert result == 2
     client.collection.assert_called_once_with(QUEUE_ENTRIES_COLLECTION)
@@ -206,9 +257,11 @@ def test_firestore_queue_counts_use_aggregation_and_field_filters():
         collection.where.call_args.kwargs["filter"],
         first_query.where.call_args.kwargs["filter"],
         second_query.where.call_args.kwargs["filter"],
+        third_query.where.call_args.kwargs["filter"],
     ]
     assert [(item.field_path, item.op_string, item.value) for item in filters] == [
         ("centre_id", "==", "centre-id"),
+        ("queue_date", "==", "2026-09-04"),
         ("status", "==", "waiting"),
         ("sequence_number", "<", 3),
     ]
@@ -220,18 +273,21 @@ def test_firestore_waiting_count_uses_aggregation_and_field_filters():
     client = MagicMock()
     collection = client.collection.return_value
     first_query = collection.where.return_value
-    final_query = first_query.where.return_value
+    second_query = first_query.where.return_value
+    final_query = second_query.where.return_value
     final_query.count.return_value.get.return_value = [[MagicMock(value=4)]]
 
-    result = FirestoreQueueRepository(client).count_waiting("centre-id")
+    result = FirestoreQueueRepository(client).count_waiting("centre-id", "2026-09-04")
 
     assert result == 4
     filters = [
         collection.where.call_args.kwargs["filter"],
         first_query.where.call_args.kwargs["filter"],
+        second_query.where.call_args.kwargs["filter"],
     ]
     assert [(item.field_path, item.op_string, item.value) for item in filters] == [
         ("centre_id", "==", "centre-id"),
+        ("queue_date", "==", "2026-09-04"),
         ("status", "==", "waiting"),
     ]
     final_query.count.assert_called_once_with(alias="count")

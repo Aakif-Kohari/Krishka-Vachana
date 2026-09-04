@@ -420,9 +420,9 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
         return do_cancel(transaction)
 
 
-def _queue_daily_counter_doc_id(centre_id: str, joined_at) -> str:
+def _queue_daily_counter_doc_id(centre_id: str, queue_date: str) -> str:
     """Generate a document ID for a centre's daily queue token-sequence counter."""
-    return f"{centre_id}_{joined_at.date().isoformat()}"
+    return f"{centre_id}_{queue_date}"
 
 
 class FirestoreQueueRepository(QueueRepository):
@@ -461,11 +461,12 @@ class FirestoreQueueRepository(QueueRepository):
         """Atomically check a farmer in, assigning the next daily per-centre sequence number."""
         farmer_id = data["farmer_id"]
         booking_id = data["booking_id"]
+        queue_date = data["joined_at"].date().isoformat()
         entry_ref = self._client.collection(QUEUE_ENTRIES_COLLECTION).document(queue_id)
         active_farmer_ref = self._client.collection(ACTIVE_FARMER_QUEUE_COLLECTION).document(farmer_id)
         active_booking_ref = self._client.collection(ACTIVE_BOOKING_QUEUE_COLLECTION).document(booking_id)
         counter_ref = self._client.collection(QUEUE_DAILY_COUNTERS_COLLECTION).document(
-            _queue_daily_counter_doc_id(centre_id, data["joined_at"])
+            _queue_daily_counter_doc_id(centre_id, queue_date)
         )
         transaction = self._client.transaction()
 
@@ -479,7 +480,12 @@ class FirestoreQueueRepository(QueueRepository):
             counter_doc = counter_ref.get(transaction=transaction)
             sequence_number = (counter_doc.to_dict().get("count", 0) if counter_doc.exists else 0) + 1
 
-            record = {"queue_id": queue_id, "sequence_number": sequence_number, **data}
+            record = {
+                "queue_id": queue_id,
+                "sequence_number": sequence_number,
+                **data,
+                "queue_date": queue_date,
+            }
             transaction.set(counter_ref, {"count": sequence_number}, merge=True)
             transaction.create(active_farmer_ref, {"queue_id": queue_id, "farmer_id": farmer_id})
             transaction.create(active_booking_ref, {"queue_id": queue_id, "booking_id": booking_id})
@@ -494,21 +500,25 @@ class FirestoreQueueRepository(QueueRepository):
         results = query.count(alias="count").get()
         return results[0][0].value if results else 0
 
-    def count_waiting_ahead(self, centre_id: str, sequence_number: int) -> int:
-        """Count waiting entries at a centre with a lower sequence number."""
+    def count_waiting_ahead(
+        self, centre_id: str, queue_date: str, sequence_number: int
+    ) -> int:
+        """Count same-day waiting entries at a centre with a lower sequence number."""
         query = (
             self._client.collection(QUEUE_ENTRIES_COLLECTION)
             .where(filter=FieldFilter("centre_id", "==", centre_id))
+            .where(filter=FieldFilter("queue_date", "==", queue_date))
             .where(filter=FieldFilter("status", "==", "waiting"))
             .where(filter=FieldFilter("sequence_number", "<", sequence_number))
         )
         return self._count(query)
 
-    def count_waiting(self, centre_id: str) -> int:
-        """Count all waiting entries at a centre."""
+    def count_waiting(self, centre_id: str, queue_date: str) -> int:
+        """Count all waiting entries at a centre on a queue date."""
         query = (
             self._client.collection(QUEUE_ENTRIES_COLLECTION)
             .where(filter=FieldFilter("centre_id", "==", centre_id))
+            .where(filter=FieldFilter("queue_date", "==", queue_date))
             .where(filter=FieldFilter("status", "==", "waiting"))
         )
         return self._count(query)

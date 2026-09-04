@@ -186,6 +186,32 @@ def test_position_reflects_arrival_order_and_updates_when_someone_leaves():
     assert updated_c.position == 2
 
 
+def test_position_and_waiting_count_only_include_same_queue_date():
+    queue_repo = InMemoryQueueRepository()
+
+    def create(queue_id, joined_at):
+        return queue_repo.create_check_in(
+            queue_id,
+            "centre-1",
+            {
+                "booking_id": f"booking-{queue_id}",
+                "farmer_id": f"farmer-{queue_id}",
+                "centre_id": "centre-1",
+                "status": "waiting",
+                "joined_at": joined_at,
+                "resolved_at": None,
+            },
+        )
+
+    create("yesterday", datetime(2026, 9, 3, tzinfo=timezone.utc))
+    create("today-first", datetime(2026, 9, 4, 8, tzinfo=timezone.utc))
+    today_second = create("today-second", datetime(2026, 9, 4, 9, tzinfo=timezone.utc))
+
+    assert today_second["queue_date"] == "2026-09-04"
+    assert queue_service._to_out(queue_repo, today_second).position == 2
+    assert queue_repo.count_waiting("centre-1", "2026-09-04") == 2
+
+
 # ---------------------------------------------------------------------------
 # GET /queue/me
 # ---------------------------------------------------------------------------

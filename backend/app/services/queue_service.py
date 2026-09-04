@@ -23,7 +23,9 @@ def _to_out(repo: QueueRepository, record: dict) -> QueueEntryOut:
     out = dict(record)
     out["token_number"] = f"{record['sequence_number']:03d}"
     if record.get("status") == "waiting":
-        ahead = repo.count_waiting_ahead(record["centre_id"], record["sequence_number"])
+        ahead = repo.count_waiting_ahead(
+            record["centre_id"], record["queue_date"], record["sequence_number"]
+        )
         out["people_ahead"] = ahead
         out["position"] = ahead + 1
         out["estimated_wait_minutes"] = ahead * AVERAGE_SERVICE_MINUTES
@@ -152,7 +154,8 @@ def get_centre_queue_status(
     """Get aggregate, identity-free live queue status for a centre."""
     if centre_repo.get(centre_id) is None:
         raise NotFoundError("Procurement centre not found")
-    waiting = queue_repo.count_waiting(centre_id)
+    queue_date = utcnow().date().isoformat()
+    waiting = queue_repo.count_waiting(centre_id, queue_date)
     return QueueCentreStatusOut(
         centre_id=centre_id,
         waiting_count=waiting,

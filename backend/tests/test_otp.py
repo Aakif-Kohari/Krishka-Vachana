@@ -146,6 +146,34 @@ def test_request_otp_respects_custom_settings(client, auth_headers):
     assert r.json()["expires_in_seconds"] == 120
 
 
+@pytest.mark.parametrize(
+    ("ttl_seconds", "expected_lifetime"),
+    [
+        (1, "1 second"),
+        (30, "30 seconds"),
+        (60, "1 minute"),
+        (61, "2 minutes"),
+        (120, "2 minutes"),
+    ],
+)
+def test_request_otp_formats_expiration_lifetime(
+    farmer_repo, monkeypatch, ttl_seconds, expected_lifetime
+):
+    farmer_repo.create("farmer-id", {"phone_number": "9876543210"})
+    sent_messages = []
+    monkeypatch.setattr(
+        otp_service,
+        "send_sms",
+        lambda _settings, _phone_number, message: sent_messages.append(message) or True,
+    )
+
+    otp_service.request_otp(
+        Settings(otp_ttl_seconds=ttl_seconds), farmer_repo, "farmer-id"
+    )
+
+    assert sent_messages[0].endswith(f"It expires in {expected_lifetime}.")
+
+
 @pytest.mark.parametrize("field", ["otp_length", "otp_ttl_seconds", "otp_max_attempts"])
 @pytest.mark.parametrize("value", [0, -1])
 def test_otp_settings_reject_non_positive_values(field, value):

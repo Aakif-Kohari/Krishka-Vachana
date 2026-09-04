@@ -320,34 +320,45 @@ class InMemoryQueueRepository(QueueRepository):
                 return None
 
             joined_at = data["joined_at"]
-            date_key = (centre_id, joined_at.date().isoformat())
+            queue_date = joined_at.date().isoformat()
+            date_key = (centre_id, queue_date)
             sequence_number = self._daily_sequence.get(date_key, 0) + 1
             self._daily_sequence[date_key] = sequence_number
 
-            record = {"queue_id": queue_id, "sequence_number": sequence_number, **data}
+            record = {
+                "queue_id": queue_id,
+                "sequence_number": sequence_number,
+                **data,
+                "queue_date": queue_date,
+            }
             self._data[queue_id] = record
             self._active_farmer_ids[farmer_id] = queue_id
             self._active_booking_ids[booking_id] = queue_id
             return dict(record)
 
-    def count_waiting_ahead(self, centre_id: str, sequence_number: int) -> int:
-        """Count waiting entries at a centre with a lower sequence number."""
+    def count_waiting_ahead(
+        self, centre_id: str, queue_date: str, sequence_number: int
+    ) -> int:
+        """Count same-day waiting entries at a centre with a lower sequence number."""
         with self._lock:
             return sum(
                 1
                 for r in self._data.values()
                 if r.get("centre_id") == centre_id
+                and r.get("queue_date") == queue_date
                 and r.get("status") == "waiting"
                 and r.get("sequence_number") < sequence_number
             )
 
-    def count_waiting(self, centre_id: str) -> int:
-        """Count all waiting entries at a centre."""
+    def count_waiting(self, centre_id: str, queue_date: str) -> int:
+        """Count all waiting entries at a centre on a queue date."""
         with self._lock:
             return sum(
                 1
                 for r in self._data.values()
-                if r.get("centre_id") == centre_id and r.get("status") == "waiting"
+                if r.get("centre_id") == centre_id
+                and r.get("queue_date") == queue_date
+                and r.get("status") == "waiting"
             )
 
     def resolve(

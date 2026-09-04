@@ -186,13 +186,15 @@ class QueueRepository(ABC):
         ...
 
     @abstractmethod
-    def count_waiting_ahead(self, centre_id: str, sequence_number: int) -> int:
-        """Count waiting entries at a centre with a lower sequence number."""
+    def count_waiting_ahead(
+        self, centre_id: str, queue_date: str, sequence_number: int
+    ) -> int:
+        """Count same-day waiting entries at a centre with a lower sequence number."""
         ...
 
     @abstractmethod
-    def count_waiting(self, centre_id: str) -> int:
-        """Count all waiting entries at a centre."""
+    def count_waiting(self, centre_id: str, queue_date: str) -> int:
+        """Count all waiting entries at a centre on a queue date."""
         ...
 
     @abstractmethod

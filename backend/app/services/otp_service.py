@@ -31,6 +31,17 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _format_expiration(ttl_seconds: int) -> str:
+    """Format an OTP lifetime without rounding sub-minute values down to zero."""
+    if ttl_seconds < 60:
+        unit = "second" if ttl_seconds == 1 else "seconds"
+        return f"{ttl_seconds} {unit}"
+
+    minutes = (ttl_seconds + 59) // 60
+    unit = "minute" if minutes == 1 else "minutes"
+    return f"{minutes} {unit}"
+
+
 def request_otp(settings: Settings, farmer_repo: FarmerRepository, farmer_id: str) -> OtpRequestOut:
     """Generate and send a phone-verification OTP to the farmer's registered number."""
     farmer = farmer_repo.get(farmer_id)
@@ -55,7 +66,7 @@ def request_otp(settings: Settings, farmer_repo: FarmerRepository, farmer_id: st
         settings,
         phone_number,
         f"KisanSetu: your verification code is {code}. "
-        f"It expires in {settings.otp_ttl_seconds // 60} minutes.",
+        f"It expires in {_format_expiration(settings.otp_ttl_seconds)}.",
     )
     if not sent:
         logger.info("OTP delivery was not completed")
