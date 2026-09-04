@@ -23,8 +23,6 @@ WEBHOOK_SECRET = "q7L9vN2xK4mP8rT5wY1cF6hJ3sU0aB9dE2gI7kM"
         "short",
         " " + "a" * 32,
         "a" * 32 + " ",
-        "a" * 32,
-        "abcd" * 8,
         "replace-with-a-random-secret-at-least-32-characters",
     ],
 )
@@ -37,6 +35,14 @@ def test_production_settings_reject_invalid_webhook_secret_syntax(secret):
 def test_production_settings_accept_minimum_length_webhook_secret():
     """Verify that production settings accept minimum-length webhook secrets."""
     secret = "q7L9vN2xK4mP8rT5wY1cF6hJ3sU0aB9d"
+    assert Settings(
+        environment="production", payment_gateway_webhook_secret=secret
+    ).payment_gateway_webhook_secret == secret
+
+
+def test_production_settings_do_not_estimate_webhook_secret_entropy():
+    """Treat the deployment-injected secret as opaque after syntax validation."""
+    secret = "a" * 32
     assert Settings(
         environment="production", payment_gateway_webhook_secret=secret
     ).payment_gateway_webhook_secret == secret
@@ -143,7 +149,6 @@ def test_mock_payment_is_rejected_outside_development(
 def test_signed_gateway_webhook_records_payment(client: TestClient, booking_repo):
     """Verify that a properly signed gateway webhook records a payment."""
     _create_booking(booking_repo)
-    # Use a high-entropy 64-char hex string to bypass the "predictable secret" validator
     secret = "f47ac10b58cc4372a5670e02b2c3d4798f4e2d1c9b7a6f5e3d2c1b0a9f8e7d6c"
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="production", payment_gateway_webhook_secret=secret
@@ -173,7 +178,6 @@ def test_signed_gateway_webhook_records_payment(client: TestClient, booking_repo
 def test_gateway_webhook_rejects_invalid_signature(client: TestClient, booking_repo):
     """Verify that gateway webhooks with invalid signatures are rejected."""
     _create_booking(booking_repo)
-    # Use a high-entropy 64-char hex string to bypass the "predictable secret" validator
     secret = "a1b2c3d4e5f647a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f123"
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="production", payment_gateway_webhook_secret=secret
@@ -196,7 +200,6 @@ def test_gateway_webhook_rejects_invalid_signature(client: TestClient, booking_r
 def test_gateway_webhook_accepts_sha256_prefix(client: TestClient, booking_repo):
     """Verify the service correctly strips the 'sha256=' prefix from gateway signatures."""
     _create_booking(booking_repo)
-    # Use a high-entropy 64-char hex string to bypass the "predictable secret" validator
     secret = "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8"
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="production", payment_gateway_webhook_secret=secret
