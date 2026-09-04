@@ -177,3 +177,28 @@ def test_cluster_booking_rejects_whitespace_only_village(client: TestClient, aut
     )
 
     assert res.status_code == 422
+
+
+def test_cluster_booking_resolves_centre_before_rejecting_past_date(
+    client: TestClient, auth_headers, farmer_repo
+):
+    """Verify that unknown centre errors take precedence over past date validation."""
+    from datetime import date, timedelta
+    past_date = (date.today() - timedelta(days=1)).isoformat()
+    
+    # Create the authenticated user so they pass the delegate/member check
+    farmer_repo.create("test-farmer-uid-123", {"full_name": "F0", "village": "V1"})
+
+    res = client.post(
+        "/api/v1/bookings/cluster",
+        json={
+            "centre_id": "does-not-exist-centre",
+            "slot_date": past_date,
+            "slot_window": "08:00-10:00",
+            "village": "V1",
+            "farmer_ids": ["test-farmer-uid-123"],
+        },
+        headers=auth_headers,
+    )
+    # Should be 404 Not Found (centre), not 422 Validation (past date)
+    assert res.status_code == 404

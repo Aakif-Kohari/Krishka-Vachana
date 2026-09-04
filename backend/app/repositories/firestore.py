@@ -839,14 +839,10 @@ class FirestorePaymentRepository(PaymentRepository):
     def list_by_farmer(
         self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """List a stable, optionally bounded page of a farmer's payments.
-        
-        Parameters:
-            farmer_id (str): Identifier of the farmer whose payments to retrieve.
-        
-        Returns:
-            List[Dict[str, Any]]: Payment records associated with the farmer.
-        """
+        """List a stable, optionally bounded page of a farmer's payments."""
+        # TODO: Consider ordering by `processed_at` instead of `payment_id` for a more
+        # intuitive chronological display in the UI. Currently using `payment_id` (UUID)
+        # for stable, lexicographical cursor-based pagination.
         query = (
             self._client.collection(PAYMENTS_COLLECTION)
             .where("farmer_id", "==", farmer_id)

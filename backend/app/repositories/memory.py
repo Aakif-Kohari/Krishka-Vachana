@@ -537,6 +537,8 @@ class InMemoryPaymentRepository(PaymentRepository):
         self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """List a stable, optionally bounded page of a farmer's payments."""
+        # TODO: Consider ordering by `processed_at` instead of `payment_id` for a more
+        # intuitive chronological display in the UI.
         with self._lock:
             records = sorted(
                 (r for r in self._data.values() if r.get("farmer_id") == farmer_id),

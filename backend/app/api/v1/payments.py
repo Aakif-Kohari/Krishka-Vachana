@@ -1,7 +1,7 @@
 """Payment tracking API endpoints."""
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Header, Request, status
+from fastapi import APIRouter, Depends, Header, Query, Request, status
 
 from app.api.deps import get_current_farmer_uid, get_payment_repository, get_slot_booking_repository
 from app.core.config import Settings, get_settings
@@ -57,6 +57,13 @@ async def payment_webhook_endpoint(
 def get_my_payments(
     farmer_uid: str = Depends(get_current_farmer_uid),
     payment_repo: PaymentRepository = Depends(get_payment_repository),
+    limit: int = Query(default=50, ge=1, le=100, description="Maximum number of payments to return"),
+    cursor: Optional[str] = Query(default=None, description="Opaque cursor for the next page"),
 ) -> List[PaymentOut]:
-    """List all payments for the authenticated farmer."""
-    return payment_service.get_farmer_payments(farmer_uid, payment_repo)
+    """
+    List payments for the authenticated farmer.
+    
+    Supports basic limit/cursor pagination. For a fully paginated view
+    across crops, bookings, and payments combined, use GET /farmers/me/history.
+    """
+    return payment_service.get_farmer_payments(farmer_uid, payment_repo, limit, cursor)

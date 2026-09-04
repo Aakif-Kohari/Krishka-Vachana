@@ -8,7 +8,7 @@ import hmac
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 from pydantic import ValidationError
 
@@ -117,7 +117,9 @@ def record_gateway_payment(
 def get_farmer_payments(
     farmer_uid: str,
     payment_repo: PaymentRepository,
+    limit: Optional[int] = None,
+    cursor: Optional[str] = None,
 ) -> List[PaymentOut]:
-    """Retrieve all payment records for a specific farmer."""
-    records = payment_repo.list_by_farmer(farmer_uid)
+    """Retrieve payment records for a specific farmer, with optional pagination."""
+    records = payment_repo.list_by_farmer(farmer_uid, limit=limit, cursor=cursor)
     return [PaymentOut.model_validate(r) for r in records]
