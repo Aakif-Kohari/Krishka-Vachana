@@ -8,7 +8,13 @@ import threading
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.repositories.base import CentreRepository, CropRepository, FarmerRepository, SlotBookingRepository
+from app.repositories.base import (
+    CentreRepository,
+    CropRepository,
+    FarmerRepository,
+    QueueRepository,
+    SlotBookingRepository,
+)
 
 
 class InMemoryFarmerRepository(FarmerRepository):
@@ -232,12 +238,101 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
             return dict(record)
 
 
+class InMemoryQueueRepository(QueueRepository):
+    """In-memory implementation of QueueRepository for development and testing."""
+
+    def __init__(self) -> None:
+        self._data: Dict[str, Dict[str, Any]] = {}
+        self._active_farmer_ids: Dict[str, str] = {}  # farmer_id -> queue_id
+        self._active_booking_ids: Dict[str, str] = {}  # booking_id -> queue_id
+        self._daily_sequence: Dict[Tuple[str, str], int] = {}  # (centre_id, date_iso) -> count
+        self._lock = threading.Lock()
+
+    def get(self, queue_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a queue entry by ID."""
+        with self._lock:
+            record = self._data.get(queue_id)
+            return dict(record) if record else None
+
+    def get_active_for_farmer(self, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a farmer's current waiting queue entry, if any."""
+        with self._lock:
+            queue_id = self._active_farmer_ids.get(farmer_id)
+            record = self._data.get(queue_id) if queue_id else None
+            return dict(record) if record else None
+
+    def get_active_for_booking(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve the waiting queue entry checked in against a booking, if any."""
+        with self._lock:
+            queue_id = self._active_booking_ids.get(booking_id)
+            record = self._data.get(queue_id) if queue_id else None
+            return dict(record) if record else None
+
+    def create_check_in(
+        self, queue_id: str, centre_id: str, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Atomically check a farmer in, assigning the next daily per-centre sequence number."""
+        with self._lock:
+            farmer_id = data["farmer_id"]
+            booking_id = data["booking_id"]
+            if farmer_id in self._active_farmer_ids or booking_id in self._active_booking_ids:
+                return None
+
+            joined_at = data["joined_at"]
+            date_key = (centre_id, joined_at.date().isoformat())
+            sequence_number = self._daily_sequence.get(date_key, 0) + 1
+            self._daily_sequence[date_key] = sequence_number
+
+            record = {"queue_id": queue_id, "sequence_number": sequence_number, **data}
+            self._data[queue_id] = record
+            self._active_farmer_ids[farmer_id] = queue_id
+            self._active_booking_ids[booking_id] = queue_id
+            return dict(record)
+
+    def count_waiting_ahead(self, centre_id: str, joined_at: datetime) -> int:
+        """Count waiting entries at a centre that joined strictly before joined_at."""
+        with self._lock:
+            return sum(
+                1
+                for r in self._data.values()
+                if r.get("centre_id") == centre_id
+                and r.get("status") == "waiting"
+                and r.get("joined_at") < joined_at
+            )
+
+    def count_waiting(self, centre_id: str) -> int:
+        """Count all waiting entries at a centre."""
+        with self._lock:
+            return sum(
+                1
+                for r in self._data.values()
+                if r.get("centre_id") == centre_id and r.get("status") == "waiting"
+            )
+
+    def resolve(
+        self, queue_id: str, farmer_id: str, new_status: str, resolved_at: datetime
+    ) -> Optional[Dict[str, Any]]:
+        """Move a farmer's own waiting entry to a terminal status and free its reservations."""
+        with self._lock:
+            record = self._data.get(queue_id)
+            if record is None or record.get("farmer_id") != farmer_id:
+                return None
+            if record.get("status") != "waiting":
+                return None
+            record["status"] = new_status
+            record["resolved_at"] = resolved_at
+            self._active_farmer_ids.pop(farmer_id, None)
+            self._active_booking_ids.pop(record["booking_id"], None)
+            return dict(record)
+
+
 # Process-wide singletons so the fallback store behaves consistently across
 # requests within a single dev server run.
 _farmer_repo = InMemoryFarmerRepository()
 _crop_repo = InMemoryCropRepository()
 _centre_repo = InMemoryCentreRepository()
 _slot_booking_repo = InMemorySlotBookingRepository()
+_queue_repo = InMemoryQueueRepository()
 
 
 def get_memory_farmer_repository() -> InMemoryFarmerRepository:
@@ -258,3 +353,8 @@ def get_memory_centre_repository() -> InMemoryCentreRepository:
 def get_memory_slot_booking_repository() -> InMemorySlotBookingRepository:
     """Return the process-wide singleton in-memory slot booking repository."""
     return _slot_booking_repo
+
+
+def get_memory_queue_repository() -> InMemoryQueueRepository:
+    """Return the process-wide singleton in-memory queue repository."""
+    return _queue_repo
