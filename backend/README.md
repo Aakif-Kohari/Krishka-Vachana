@@ -257,6 +257,7 @@ running ASGI process - wiring that up (e.g. via an ASGI adapter and
 pipeline per `team_work_division.md`. The Docker/Procfile paths above work
 on any container-based host in the meantime.
 
+
 ## Design notes for teammates
 
 - **Frontend**: request/response shapes are the `FarmerCreate`/`FarmerOut`,
