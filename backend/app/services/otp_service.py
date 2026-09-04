@@ -51,16 +51,21 @@ def request_otp(settings: Settings, farmer_repo: FarmerRepository, farmer_id: st
     if not phone_number:
         raise ConflictError("No phone number on file for this profile")
 
+    issued_at = utcnow()
     code = f"{secrets.randbelow(10 ** settings.otp_length):0{settings.otp_length}d}"
-    expires_at = utcnow() + timedelta(seconds=settings.otp_ttl_seconds)
-    farmer_repo.update(
+    expires_at = issued_at + timedelta(seconds=settings.otp_ttl_seconds)
+    issued = farmer_repo.issue_phone_otp_challenge(
         farmer_id,
+        issued_at,
+        settings.otp_request_cooldown_seconds,
         {
             "phone_otp_hash": _hash_code(code),
             "phone_otp_expires_at": expires_at,
             "phone_otp_attempts": 0,
         },
     )
+    if not issued:
+        raise ConflictError("Please wait before requesting another verification code")
 
     sent = send_sms(
         settings,

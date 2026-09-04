@@ -209,6 +209,7 @@ def test_position_and_waiting_count_only_include_same_queue_date():
                 "centre_id": "centre-1",
                 "status": "waiting",
                 "joined_at": joined_at,
+                "queue_date": joined_at.date().isoformat(),
                 "resolved_at": None,
             },
         )
@@ -220,6 +221,45 @@ def test_position_and_waiting_count_only_include_same_queue_date():
     assert today_second["queue_date"] == "2026-09-04"
     assert queue_service._to_out(queue_repo, today_second).position == 2
     assert queue_repo.count_waiting("centre-1", "2026-09-04") == 2
+
+
+def test_check_in_near_utc_midnight_uses_procurement_centre_date(
+    monkeypatch, queue_repo, booking_repo, farmer_repo, centre_repo, seeded_centre_id
+):
+    """Test that check-in, position, and centre status share the centre-local date."""
+    joined_at = datetime(2026, 9, 3, 19, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(queue_service, "utcnow", lambda: joined_at)
+    monkeypatch.setattr(queue_service, "_dispatch_check_in_notification", lambda *_args: None)
+
+    farmer_repo.create("farmer-local-midnight", {"phone_number": "9876543210"})
+    booking_repo.create_if_capacity_available(
+        "booking-local-midnight",
+        10,
+        {
+            "farmer_id": "farmer-local-midnight",
+            "centre_id": seeded_centre_id,
+            "slot_date": datetime(2000, 1, 1).date(),
+            "slot_window": "08:00-10:00",
+            "status": "booked",
+            "created_at": joined_at,
+        },
+    )
+
+    entry = queue_service.check_in(
+        queue_repo,
+        booking_repo,
+        farmer_repo,
+        "farmer-local-midnight",
+        QueueCheckInCreate(booking_id="booking-local-midnight"),
+    )
+    centre_status = queue_service.get_centre_queue_status(
+        queue_repo, centre_repo, seeded_centre_id
+    )
+
+    assert joined_at.date().isoformat() == "2026-09-03"
+    assert queue_repo.get(entry.queue_id)["queue_date"] == "2026-09-04"
+    assert entry.position == 1
+    assert centre_status.waiting_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +387,12 @@ def test_centre_status_unknown_centre_is_404(client, auth_headers):
 
 def test_printable_token_returns_html(client, auth_headers, seeded_centre_id):
     """Test that printable token endpoint returns HTML with token details."""
-    _register_farmer(client, auth_headers)
+    farmer_name = "Ravi <strong>Kumar</strong>"
+    payload = {**FARMER_PAYLOAD, "full_name": farmer_name}
+    registered = client.post(
+        "/api/v1/farmers/register", json=payload, headers=auth_headers
+    )
+    assert registered.status_code == 201
     booking = _book_slot(client, auth_headers, seeded_centre_id)
     queue_id = _check_in(client, auth_headers, booking["booking_id"]).json()["queue_id"]
 
@@ -359,6 +404,8 @@ def test_printable_token_returns_html(client, auth_headers, seeded_centre_id):
     assert "KisanSetu" in r.text
     assert "Print this page" in r.text
     assert "Position 1 in the queue" in r.text
+    assert "Ravi &lt;strong&gt;Kumar&lt;/strong&gt;" in r.text
+    assert farmer_name not in r.text
 
 
 def test_printable_token_reflects_served_status(client, auth_headers, seeded_centre_id):

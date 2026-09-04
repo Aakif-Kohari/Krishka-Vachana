@@ -12,7 +12,7 @@
 """
 import hashlib
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from google.cloud import firestore
@@ -155,6 +155,30 @@ class FirestoreFarmerRepository(FarmerRepository):
         ref.update(data)
         doc = ref.get()
         return doc.to_dict()
+
+    def issue_phone_otp_challenge(
+        self,
+        farmer_id: str,
+        issued_at: datetime,
+        cooldown_seconds: int,
+        data: Dict[str, Any],
+    ) -> bool:
+        """Atomically store an OTP challenge unless the farmer is in cooldown."""
+        farmer_ref = self._client.collection(FARMERS_COLLECTION).document(farmer_id)
+        transaction = self._client.transaction()
+
+        @firestore.transactional
+        def issue(transaction) -> bool:
+            snapshot = farmer_ref.get(transaction=transaction)
+            if not snapshot.exists:
+                return False
+            last_issued_at = snapshot.to_dict().get("phone_otp_issued_at")
+            if last_issued_at and issued_at < last_issued_at + timedelta(seconds=cooldown_seconds):
+                return False
+            transaction.update(farmer_ref, {**data, "phone_otp_issued_at": issued_at})
+            return True
+
+        return issue(transaction)
 
     def consume_phone_otp_attempt(
         self,
@@ -466,7 +490,7 @@ class FirestoreQueueRepository(QueueRepository):
         """Atomically check a farmer in, assigning the next daily per-centre sequence number."""
         farmer_id = data["farmer_id"]
         booking_id = data["booking_id"]
-        queue_date = data["joined_at"].date().isoformat()
+        queue_date = data["queue_date"]
         entry_ref = self._client.collection(QUEUE_ENTRIES_COLLECTION).document(queue_id)
         active_farmer_ref = self._client.collection(ACTIVE_FARMER_QUEUE_COLLECTION).document(farmer_id)
         active_booking_ref = self._client.collection(ACTIVE_BOOKING_QUEUE_COLLECTION).document(booking_id)

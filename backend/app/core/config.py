@@ -52,9 +52,10 @@ class Settings(BaseSettings):
 
     # Phone-number OTP verification (Phase 3, see app/services/otp_service.py).
     # Independent of Firebase Authentication - see app/schemas/otp.py.
-    otp_length: int = Field(default=6, ge=1)
+    otp_length: int = Field(default=6, ge=4, le=8)
     otp_ttl_seconds: int = Field(default=600, ge=1)
     otp_max_attempts: int = Field(default=5, ge=1)
+    otp_request_cooldown_seconds: int = Field(default=60, ge=1)
 
     # API
     api_v1_prefix: str = "/api/v1"

@@ -59,6 +59,17 @@ class FarmerRepository(ABC):
         ...
 
     @abstractmethod
+    def issue_phone_otp_challenge(
+        self,
+        farmer_id: str,
+        issued_at: datetime,
+        cooldown_seconds: int,
+        data: Dict[str, Any],
+    ) -> bool:
+        """Atomically store an OTP challenge unless the farmer is in cooldown."""
+        ...
+
+    @abstractmethod
     def consume_phone_otp_attempt(
         self,
         farmer_id: str,
@@ -178,6 +189,7 @@ class QueueRepository(ABC):
     ) -> Optional[Dict[str, Any]]:
         """Atomically check a farmer in, assigning the next daily per-centre
         sequence number (used to build the printable token number).
+        `data` must include the procurement-centre-local `queue_date`.
         Returns None (no partial state left behind) if farmer_id or
         booking_id in `data` already has an active (waiting) entry - mirrors
         SlotBookingRepository.create_if_capacity_available's reserve-then-

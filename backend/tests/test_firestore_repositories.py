@@ -201,8 +201,33 @@ def test_firestore_phone_otp_attempt_is_consumed_in_transaction(monkeypatch):
     )
 
 
+def test_firestore_phone_otp_challenge_enforces_cooldown_in_transaction(monkeypatch):
+    """Test that OTP challenge issuance rejects a farmer still in cooldown."""
+    monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
+    client = MagicMock()
+    transaction = MagicMock()
+    client.transaction.return_value = transaction
+    farmer_ref = client.collection.return_value.document.return_value
+    issued_at = datetime(2026, 9, 4, 8, tzinfo=timezone.utc)
+    farmer_ref.get.return_value = _snapshot(
+        exists=True,
+        data={"phone_otp_issued_at": issued_at - timedelta(seconds=30)},
+    )
+
+    issued = FirestoreFarmerRepository(client).issue_phone_otp_challenge(
+        "farmer-id",
+        issued_at,
+        60,
+        {"phone_otp_hash": "new-hash"},
+    )
+
+    assert issued is False
+    farmer_ref.get.assert_called_once_with(transaction=transaction)
+    transaction.update.assert_not_called()
+
+
 def test_firestore_queue_check_in_persists_queue_date(monkeypatch):
-    """Test that queue check-in extracts and persists queue_date from joined_at."""
+    """Test that queue check-in persists the explicit centre-local queue_date."""
     monkeypatch.setattr(firestore_module.firestore, "transactional", lambda function: function)
     client = MagicMock()
     transaction = MagicMock()
@@ -231,7 +256,8 @@ def test_firestore_queue_check_in_persists_queue_date(monkeypatch):
             "booking_id": "booking-id",
             "centre_id": "centre-id",
             "status": "waiting",
-            "joined_at": datetime(2026, 9, 4, 8, tzinfo=timezone.utc),
+            "joined_at": datetime(2026, 9, 3, 19, tzinfo=timezone.utc),
+            "queue_date": "2026-09-04",
         },
     )
 

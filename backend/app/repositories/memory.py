@@ -5,7 +5,7 @@ app/api/deps.py), and directly in tests. Not for production use - data is
 lost on process restart and there is no cross-process consistency.
 """
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.repositories.base import (
@@ -88,6 +88,24 @@ class InMemoryFarmerRepository(FarmerRepository):
             record = self._data.setdefault(farmer_id, {"farmer_id": farmer_id})
             record.update(data)
             return dict(record)
+
+    def issue_phone_otp_challenge(
+        self,
+        farmer_id: str,
+        issued_at: datetime,
+        cooldown_seconds: int,
+        data: Dict[str, Any],
+    ) -> bool:
+        """Atomically store an OTP challenge unless the farmer is in cooldown."""
+        with self._lock:
+            record = self._data.get(farmer_id)
+            if record is None:
+                return False
+            last_issued_at = record.get("phone_otp_issued_at")
+            if last_issued_at and issued_at < last_issued_at + timedelta(seconds=cooldown_seconds):
+                return False
+            record.update({**data, "phone_otp_issued_at": issued_at})
+            return True
 
     def consume_phone_otp_attempt(
         self,
@@ -324,8 +342,7 @@ class InMemoryQueueRepository(QueueRepository):
             if farmer_id in self._active_farmer_ids or booking_id in self._active_booking_ids:
                 return None
 
-            joined_at = data["joined_at"]
-            queue_date = joined_at.date().isoformat()
+            queue_date = data["queue_date"]
             date_key = (centre_id, queue_date)
             sequence_number = self._daily_sequence.get(date_key, 0) + 1
             self._daily_sequence[date_key] = sequence_number

@@ -37,6 +37,11 @@ def _to_out(repo: QueueRepository, record: dict) -> QueueEntryOut:
     return QueueEntryOut.model_validate(out)
 
 
+def _queue_date_at(instant: datetime) -> str:
+    """Return the queue date for an instant in the procurement-centre timezone."""
+    return instant.astimezone(PROCUREMENT_CENTRE_TIMEZONE).date().isoformat()
+
+
 def _notify_check_in(farmer_repo: FarmerRepository, record: dict) -> None:
     """Send best-effort SMS notification with token number to the checked-in farmer."""
     """Best-effort SMS with the farmer's token number; never blocks check-in."""
@@ -98,6 +103,8 @@ def check_in(
     if slot_date_value > datetime.now(PROCUREMENT_CENTRE_TIMEZONE).date():
         raise ConflictError("You can only check in on or after your slot date")
 
+    joined_at = utcnow()
+    queue_date = _queue_date_at(joined_at)
     queue_id = str(uuid.uuid4())
     record = queue_repo.create_check_in(
         queue_id,
@@ -107,7 +114,8 @@ def check_in(
             "farmer_id": farmer_id,
             "centre_id": booking["centre_id"],
             "status": "waiting",
-            "joined_at": utcnow(),
+            "joined_at": joined_at,
+            "queue_date": queue_date,
             "resolved_at": None,
         },
     )
@@ -159,7 +167,7 @@ def get_centre_queue_status(
     """Get aggregate, identity-free live queue status for a centre."""
     if centre_repo.get(centre_id) is None:
         raise NotFoundError("Procurement centre not found")
-    queue_date = utcnow().date().isoformat()
+    queue_date = _queue_date_at(utcnow())
     waiting = queue_repo.count_waiting(centre_id, queue_date)
     return QueueCentreStatusOut(
         centre_id=centre_id,

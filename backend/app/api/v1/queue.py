@@ -1,3 +1,5 @@
+from html import escape
+
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import HTMLResponse
 
@@ -98,8 +100,8 @@ def printable_token(
     entry = queue_service.get_queue_entry(queue_repo, farmer_id, queue_id)
     centre = centre_repo.get(entry.centre_id)
     farmer = farmer_repo.get(farmer_id)
-    centre_name = centre["name"] if centre else entry.centre_id
-    farmer_name = farmer.get("full_name") if farmer else ""
+    centre_name = escape(str(centre["name"] if centre else entry.centre_id))
+    farmer_name = escape(str(farmer.get("full_name") or "")) if farmer else ""
 
     if entry.status == "waiting" and entry.position is not None:
         status_line = f"Position {entry.position} in the queue"

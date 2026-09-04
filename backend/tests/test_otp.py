@@ -62,6 +62,38 @@ def test_request_otp_success(client, auth_headers, monkeypatch, caplog):
     assert FARMER_PAYLOAD["phone_number"] not in caplog.text
 
 
+def test_request_otp_rejects_requests_during_cooldown(client, auth_headers, monkeypatch):
+    """Test that repeated requests cannot trigger another SMS during cooldown."""
+    _register_farmer(client, auth_headers)
+    sent_messages = []
+    monkeypatch.setattr(
+        otp_service,
+        "send_sms",
+        lambda _settings, _phone_number, message: sent_messages.append(message) or True,
+    )
+
+    first = client.post("/api/v1/farmers/me/phone/otp/request", headers=auth_headers)
+    second = client.post("/api/v1/farmers/me/phone/otp/request", headers=auth_headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert len(sent_messages) == 1
+
+
+def test_request_otp_allows_request_after_cooldown(farmer_repo, monkeypatch):
+    """Test that normal OTP issuance resumes when the cooldown expires."""
+    farmer_repo.create("farmer-id", {"phone_number": "9876543210"})
+    issued_at = datetime(2026, 9, 4, 8, tzinfo=timezone.utc)
+    request_times = iter([issued_at, issued_at + timedelta(seconds=60)])
+    monkeypatch.setattr(otp_service, "utcnow", lambda: next(request_times))
+    monkeypatch.setattr(otp_service, "send_sms", lambda *_args: True)
+
+    otp_service.request_otp(Settings(), farmer_repo, "farmer-id")
+    otp_service.request_otp(Settings(), farmer_repo, "farmer-id")
+
+    assert farmer_repo.get("farmer-id")["phone_otp_issued_at"] == issued_at + timedelta(seconds=60)
+
+
 def test_farmer_starts_unverified(client, auth_headers):
     """Test that newly registered farmers have phone_verified set to False."""
     _register_farmer(client, auth_headers)
@@ -140,6 +172,7 @@ def test_otp_hash_never_returned_in_farmer_response(client, auth_headers, monkey
     assert "phone_otp_hash" not in body
     assert "phone_otp_expires_at" not in body
     assert "phone_otp_attempts" not in body
+    assert "phone_otp_issued_at" not in body
 
 
 def test_request_otp_respects_custom_settings(client, auth_headers):
@@ -185,12 +218,21 @@ def test_request_otp_formats_expiration_lifetime(
     assert sent_messages[0].endswith(f"It expires in {expected_lifetime}.")
 
 
-@pytest.mark.parametrize("field", ["otp_length", "otp_ttl_seconds", "otp_max_attempts"])
+@pytest.mark.parametrize(
+    "field", ["otp_length", "otp_ttl_seconds", "otp_max_attempts", "otp_request_cooldown_seconds"]
+)
 @pytest.mark.parametrize("value", [0, -1])
 def test_otp_settings_reject_non_positive_values(field, value):
-    """Test that OTP settings reject non-positive values for length, TTL, and max attempts."""
+    """Test that OTP settings reject non-positive numeric values."""
     with pytest.raises(ValidationError):
         Settings(**{field: value})
+
+
+@pytest.mark.parametrize("value", [3, 9])
+def test_otp_settings_reject_length_outside_request_schema_range(value):
+    """Test that configured OTP length stays within the request schema's 4-8 range."""
+    with pytest.raises(ValidationError):
+        Settings(otp_length=value)
 
 
 def test_concurrent_valid_otp_can_only_be_consumed_once(farmer_repo):

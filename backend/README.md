@@ -70,8 +70,8 @@ built to be deployable as-is rather than a throwaway prototype:
   generic SMS gateway client (no vendor chosen yet - see its docstring for
   the placeholder payload shape and how to swap it in later). It's used
   for two things: best-effort transactional notifications (booking
-  confirmed, checked-in-with-token-number - never block the action they're
-  attached to if sending fails), and a proper OTP flow
+  confirmed, checked-in-with-token-number) whose delivery failures do not
+  fail the primary action, and a proper OTP flow
   (`POST /api/v1/farmers/me/phone/otp/request` /
   `.../otp/verify`) that verifies a farmer's registered phone number
   independently of Firebase Authentication (Infra's domain, used for

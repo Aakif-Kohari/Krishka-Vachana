@@ -27,9 +27,10 @@ logger = logging.getLogger("app.slot")
 
 
 def _notify_booking_confirmed(farmer_repo: FarmerRepository, record: dict) -> None:
-    """Send best-effort SMS confirmation of slot booking to the farmer."""
-    """Best-effort SMS confirmation (Phase 3 SMS integration); never blocks
-    or fails the booking itself - see app/core/sms.py."""
+    """Send a best-effort SMS confirmation without failing the booking.
+
+    This is the Phase 3 SMS integration; see app/core/sms.py.
+    """
     try:
         from app.core.config import get_settings
         from app.core.sms import send_sms
