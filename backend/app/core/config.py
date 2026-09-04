@@ -90,7 +90,6 @@ class Settings(BaseSettings):
 
     # Phase 4: Payment Gateway Integration Point
     payment_gateway_webhook_secret: str = ""
-    payment_gateway_mock_url: str = "https://mock-payment-gateway.local/webhook"
 
     @model_validator(mode="after")
     def require_secure_production_webhook_secret(self):

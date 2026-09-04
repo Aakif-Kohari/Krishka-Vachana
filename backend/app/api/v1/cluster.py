@@ -11,6 +11,8 @@ from app.repositories.base import CentreRepository, FarmerRepository, SlotBookin
 from app.schemas.cluster import ClusterBookingCreate, ClusterBookingOut
 from app.services import cluster_service
 
+# Note: This router shares the `/bookings` prefix with `bookings.py` intentionally,
+# as cluster bookings are a specialized subset of the broader booking domain.
 router = APIRouter(prefix="/bookings", tags=["cluster"])
 
 

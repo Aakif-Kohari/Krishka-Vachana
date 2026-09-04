@@ -175,6 +175,10 @@ class SlotBookingRepository(ABC):
         """
         Atomically create a batch of bookings when capacity is available for the entire batch.
         
+        Precondition: All entries in `data_list` MUST share the same `centre_id`, 
+        `slot_date`, and `slot_window`. The implementation uses the first entry 
+        to derive the capacity counter key.
+        
         Parameters:
             booking_ids (List[str]): Identifiers for the bookings to create.
             capacity (int): Maximum number of bookings allowed.

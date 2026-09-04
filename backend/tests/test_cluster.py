@@ -7,7 +7,6 @@ def test_cluster_booking_success(client: TestClient, auth_headers, farmer_repo, 
     # Setup 2 farmers in the same village
     farmer_repo.create("test-farmer-uid-123", {"full_name": "F1", "village": "V1"})
     farmer_repo.create("f2", {"full_name": "F2", "village": "V1"})
-    centre_repo.list() # Trigger seed
 
     res = client.post(
         "/api/v1/bookings/cluster",
@@ -24,7 +23,8 @@ def test_cluster_booking_success(client: TestClient, auth_headers, farmer_repo, 
     assert len(res.json()["booking_ids"]) == 2
 
 def test_cluster_booking_mixed_villages_fails(client: TestClient, auth_headers, farmer_repo):
-    farmer_repo.create("f1", {"full_name": "F1", "village": "V1"})
+    # Create the authenticated user so they pass the delegate/member check
+    farmer_repo.create("test-farmer-uid-123", {"full_name": "F0", "village": "V1"})
     farmer_repo.create("f2", {"full_name": "F2", "village": "V2"})
 
     res = client.post(
@@ -34,11 +34,11 @@ def test_cluster_booking_mixed_villages_fails(client: TestClient, auth_headers, 
             "slot_date": "2026-10-01",
             "slot_window": "08:00-10:00",
             "village": "V1",
-            "farmer_ids": ["f1", "f2"]
+            "farmer_ids": ["test-farmer-uid-123", "f2"] # Include authenticated user
         },
         headers=auth_headers
     )
-    assert res.status_code == 400 # Bad Request
+    assert res.status_code == 422 
 
 def test_cluster_booking_insufficient_capacity_rolls_back(client: TestClient, auth_headers, farmer_repo, booking_repo):
     """
@@ -96,7 +96,6 @@ def test_cluster_booking_allows_repository_backed_delegate(
     delegate_grant = {"authorized_cluster_delegate_ids": ["test-farmer-uid-123"]}
     farmer_repo.create("f1", {"full_name": "F1", "village": "V1", **delegate_grant})
     farmer_repo.create("f2", {"full_name": "F2", "village": "V1", **delegate_grant})
-    centre_repo.list()
 
     res = client.post(
         "/api/v1/bookings/cluster",

@@ -31,9 +31,6 @@ from app.repositories.memory import (
     get_memory_queue_repository,
     get_memory_slot_booking_repository,
 )
-from app.repositories.base import PaymentRepository
-from app.repositories.memory import get_memory_payment_repository
-
 
 def get_current_farmer_uid(
     authorization: str = Header(default=""),

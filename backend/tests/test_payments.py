@@ -105,66 +105,96 @@ def test_mock_payment_is_rejected_outside_development(
 ):
     _create_booking(booking_repo)
     app.dependency_overrides[get_settings] = lambda: Settings(environment="production")
-
-    res = client.post(
-        "/api/v1/payments",
-        json={"booking_id": "booking-1", "amount_paise": 500000, "transaction_ref": "TXN123"},
-        headers=auth_headers,
-    )
-
-    assert res.status_code == 403
+    try:
+        res = client.post(
+            "/api/v1/payments",
+            json={"booking_id": "booking-1", "amount_paise": 500000, "transaction_ref": "TXN123"},
+            headers=auth_headers,
+        )
+        assert res.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
 
 
 def test_signed_gateway_webhook_records_payment(client: TestClient, booking_repo):
     _create_booking(booking_repo)
-    secret = WEBHOOK_SECRET
+    # Use a high-entropy 64-char hex string to bypass the "predictable secret" validator
+    secret = "f47ac10b58cc4372a5670e02b2c3d4798f4e2d1c9b7a6f5e3d2c1b0a9f8e7d6c"
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="production", payment_gateway_webhook_secret=secret
     )
-    payload = {
-        "event": "payment.success",
-        "booking_id": "booking-1",
-        "amount_paise": 500001,
-        "transaction_ref": "GATEWAY_001",
-    }
-    body = json.dumps(payload, separators=(",", ":")).encode()
-    signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-
-    res = client.post(
-        "/api/v1/payments/webhook",
-        content=body,
-        headers={"Content-Type": "application/json", "X-Payment-Signature": signature},
-    )
-
-    assert res.status_code == 201
-    assert res.json()["amount_paise"] == 500001
-    assert res.json()["transaction_ref"] == "GATEWAY_001"
-
-
-def test_gateway_webhook_rejects_invalid_signature(client: TestClient, booking_repo):
-    _create_booking(booking_repo)
-    app.dependency_overrides[get_settings] = lambda: Settings(
-        environment="production", payment_gateway_webhook_secret=WEBHOOK_SECRET
-    )
-    body = json.dumps(
-        {
+    try:
+        payload = {
             "event": "payment.success",
             "booking_id": "booking-1",
             "amount_paise": 500001,
             "transaction_ref": "GATEWAY_001",
         }
-    ).encode()
+        body = json.dumps(payload, separators=(",", ":")).encode()
+        signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
-    res = client.post(
-        "/api/v1/payments/webhook",
-        content=body,
-        headers={"Content-Type": "application/json", "X-Payment-Signature": "invalid"},
+        res = client.post(
+            "/api/v1/payments/webhook",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Payment-Signature": signature},
+        )
+        assert res.status_code == 201
+        assert res.json()["amount_paise"] == 500001
+        assert res.json()["transaction_ref"] == "GATEWAY_001"
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+
+def test_gateway_webhook_rejects_invalid_signature(client: TestClient, booking_repo):
+    _create_booking(booking_repo)
+    # Use a high-entropy 64-char hex string to bypass the "predictable secret" validator
+    secret = "a1b2c3d4e5f647a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f123"
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        environment="production", payment_gateway_webhook_secret=secret
     )
+    try:
+        body = json.dumps({
+            "event": "payment.success", "booking_id": "booking-1",
+            "amount_paise": 500001, "transaction_ref": "GATEWAY_001",
+        }).encode()
 
-    assert res.status_code == 401
+        res = client.post(
+            "/api/v1/payments/webhook", content=body,
+            headers={"Content-Type": "application/json", "X-Payment-Signature": "invalid"},
+        )
+        assert res.status_code == 401
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+
+def test_gateway_webhook_accepts_sha256_prefix(client: TestClient, booking_repo):
+    """Verify the service correctly strips the 'sha256=' prefix from gateway signatures."""
+    _create_booking(booking_repo)
+    # Use a high-entropy 64-char hex string to bypass the "predictable secret" validator
+    secret = "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8"
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        environment="production", payment_gateway_webhook_secret=secret
+    )
+    try:
+        payload = {
+            "event": "payment.success", "booking_id": "booking-1",
+            "amount_paise": 500001, "transaction_ref": "GATEWAY_PREFIX_TEST",
+        }
+        body = json.dumps(payload, separators=(",", ":")).encode()
+        # Real gateways like Razorpay send the prefix
+        signature = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+        res = client.post(
+            "/api/v1/payments/webhook", content=body,
+            headers={"Content-Type": "application/json", "X-Payment-Signature": signature},
+        )
+        assert res.status_code == 201
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
 
 
 def test_concurrent_payment_insertions_return_one_record(payment_repo):
+    """Prove thread-safety: concurrent identical payments result in only one record."""
     now = datetime.now(timezone.utc)
 
     def create(payment_id):
