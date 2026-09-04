@@ -26,30 +26,24 @@ def create_cluster_booking(
 ) -> ClusterBookingOut:
     """
     Create atomic bookings for all farmers in a village cluster.
-    
+
     Parameters:
     	cluster_data (ClusterBookingCreate): Cluster details, including the farmers, village, centre, date, and slot window.
         farmer_uid (str): Authenticated caller creating the cluster booking.
     	farmer_repo (FarmerRepository): Repository used to verify farmer records.
-    	booking_repo (SlotBookingRepository): Repository used to reserve the group’s slot capacity.
+    	booking_repo (SlotBookingRepository): Repository used to reserve the group's slot capacity.
     	centre_repo (CentreRepository): Repository used to verify the booking centre and retrieve its slot capacity.
-    
+
     Returns:
     	ClusterBookingOut: Details of the created cluster booking and its individual booking IDs.
-    
+
     Raises:
+        ForbiddenError: If the caller is not a member of the cluster or an authorized delegate.
     	NotFoundError: If a farmer or booking centre does not exist.
-    	AppError: If a farmer does not belong to the requested village.
+    	ValidationAppError: If a farmer does not belong to the requested village.
     	ConflictError: If capacity is insufficient for the entire group.
     """
-    # 1. Validate all farmers exist and belong to the claimed village
-    for fid in cluster_data.farmer_ids:
-        farmer = farmer_repo.get(fid)
-        if not farmer:
-            raise NotFoundError(f"Farmer {fid} not found")
-        if farmer.get("village") != cluster_data.village:
-            raise ValidationAppError(f"Farmer {fid} does not belong to village {cluster_data.village}")
-
+    # 1. Check authorization FIRST to prevent probing farmer existence/villages
     if (
         farmer_uid not in cluster_data.farmer_ids
         and not farmer_repo.is_cluster_delegate_authorized(
@@ -58,17 +52,24 @@ def create_cluster_booking(
     ):
         raise ForbiddenError("Not authorized to book for this farmer cluster")
 
-    # 2. Verify centre exists
+    # 2. Validate all farmers exist and belong to the claimed village
+    for fid in cluster_data.farmer_ids:
+        farmer = farmer_repo.get(fid)
+        if not farmer:
+            raise NotFoundError(f"Farmer {fid} not found")
+        if farmer.get("village") != cluster_data.village:
+            raise ValidationAppError(f"Farmer {fid} does not belong to village {cluster_data.village}")
+
+    # 3. Verify centre exists
     centre = centre_repo.get(cluster_data.centre_id)
     if not centre:
         raise NotFoundError(f"Centre {cluster_data.centre_id} not found")
     
     capacity = centre.get("capacity_per_slot", 0)
 
-    # 3. Prepare batch data
-    # We need to generate booking IDs and format slot_date for the repo
-    slot_date_iso = cluster_data.slot_date.isoformat()
-    
+    # 4. Prepare batch data
+    # Pass the native `date` object. The Firestore repo handles ISO serialization,
+    # and the in-memory repo keeps it as a `date` object to match `slot_service.book_slot`.
     data_list = []
     booking_ids = []
     for fid in cluster_data.farmer_ids:
@@ -77,13 +78,13 @@ def create_cluster_booking(
         data_list.append({
             "farmer_id": fid,
             "centre_id": cluster_data.centre_id,
-            "slot_date": slot_date_iso,
+            "slot_date": cluster_data.slot_date,  # Native date object (Fixes Bug 2)
             "slot_window": cluster_data.slot_window,
-            "status": "confirmed",
+            "status": "booked",                   # Matches slot_service.book_slot (Fixes Bug 1)
             "created_at": datetime.now(timezone.utc),
         })
 
-    # 4. Atomic Batch Creation
+    # 5. Atomic Batch Creation
     created_bookings = booking_repo.create_batch_atomic(
         booking_ids=booking_ids,
         capacity=capacity,
