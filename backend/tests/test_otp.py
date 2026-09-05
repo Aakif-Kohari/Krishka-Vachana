@@ -59,6 +59,7 @@ def test_request_otp_success(client, auth_headers, monkeypatch, caplog):
     release = Event()
 
     def slow_delivery(*_args):
+        """Mock slow SMS delivery."""
         started.set()
         release.wait(timeout=2)
         return True
@@ -90,6 +91,7 @@ def test_request_otp_rejects_requests_during_cooldown(client, auth_headers, monk
     delivered = Event()
 
     def record_message(_settings, _phone_number, message):
+        """Mock function to record sent messages."""
         sent_messages.append(message)
         delivered.set()
         return True
@@ -118,6 +120,7 @@ def test_request_otp_allows_request_after_cooldown(farmer_repo, monkeypatch):
     both_delivered = Event()
 
     def record_delivery(*_args):
+        """Mock function to record delivery events."""
         deliveries.append(True)
         if len(deliveries) == 2:
             both_delivered.set()
@@ -247,6 +250,7 @@ def test_request_otp_formats_expiration_lifetime(
     delivered = Event()
 
     def record_message(_settings, _phone_number, message):
+        """Mock function to record sent messages."""
         sent_messages.append(message)
         delivered.set()
         return True

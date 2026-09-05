@@ -53,6 +53,7 @@ def _book(booking_repo, booking_id, centre_id, capacity, window, farmer_id):
 
 
 def test_falls_back_to_heuristic_when_no_ml_endpoint_configured():
+    """Verify that the service falls back to heuristic prediction when ML endpoint is not configured."""
     centre_repo, booking_repo = _repos()
     settings = Settings(congestion_prediction_api_url="")
 
@@ -66,6 +67,7 @@ def test_falls_back_to_heuristic_when_no_ml_endpoint_configured():
 
 
 def test_unknown_centre_raises_not_found():
+    """Verify that congestion prediction for an unknown centre raises NotFoundError."""
     centre_repo, booking_repo = _repos()
     settings = Settings(congestion_prediction_api_url="")
 
@@ -74,6 +76,7 @@ def test_unknown_centre_raises_not_found():
 
 
 def test_heuristic_reflects_actual_bookings():
+    """Verify that heuristic congestion predictions reflect actual bookings."""
     centre_repo, booking_repo = _repos(capacity=2)
     _book(booking_repo, "b1", "ctr-a", 2, "08:00-10:00", "f1")
     _book(booking_repo, "b2", "ctr-a", 2, "08:00-10:00", "f2")
@@ -87,6 +90,7 @@ def test_heuristic_reflects_actual_bookings():
 
 
 def test_suggests_alternative_centre_when_busy():
+    """Verify that alternatives are suggested when a centre is busy."""
     centre_repo, booking_repo = _repos(capacity=2)
     _book(booking_repo, "b1", "ctr-a", 2, "08:00-10:00", "f1")
     _book(booking_repo, "b2", "ctr-a", 2, "08:00-10:00", "f2")
@@ -98,6 +102,7 @@ def test_suggests_alternative_centre_when_busy():
 
 
 def test_no_alternatives_suggested_when_everything_is_quiet():
+    """Verify that no alternatives are suggested when all centres are quiet."""
     centre_repo, booking_repo = _repos()
     settings = Settings(congestion_prediction_api_url="")
 
@@ -107,14 +112,17 @@ def test_no_alternatives_suggested_when_everything_is_quiet():
 
 
 def test_uses_ml_endpoint_when_configured(monkeypatch):
+    """Verify that the ML endpoint is used when configured."""
     centre_repo, booking_repo = _repos()
     settings = Settings(congestion_prediction_api_url="https://ml.example.com/predict")
 
     class _FakeResponse:
         def raise_for_status(self):
+            """Mock method to simulate HTTP response status."""
             return None
 
         def json(self):
+            """Mock method to return JSON response."""
             return {
                 "windows": [
                     {
@@ -148,14 +156,17 @@ def test_uses_ml_endpoint_when_configured(monkeypatch):
 
 
 def test_falls_back_to_heuristic_when_ml_endpoint_returns_invalid_metrics(monkeypatch):
+    """Verify fallback to heuristic when ML endpoint returns invalid metrics."""
     centre_repo, booking_repo = _repos()
     settings = Settings(congestion_prediction_api_url="https://ml.example.com/predict")
 
     class _FakeResponse:
         def raise_for_status(self) -> None:
+            """Mock method to simulate HTTP response status."""
             return None
 
         def json(self):
+            """Mock method to return JSON response."""
             # A negative booked_count is impossible - SlotWindowCongestion's
             # Field(ge=0) should reject this during CongestionOut
             # construction, and predict_congestion should treat that the
@@ -183,6 +194,7 @@ def test_falls_back_to_heuristic_when_ml_endpoint_returns_invalid_metrics(monkey
 
 
 def test_falls_back_to_heuristic_when_ml_endpoint_errors(monkeypatch, caplog):
+    """Verify fallback to heuristic when ML endpoint errors."""
     centre_repo, booking_repo = _repos()
     settings = Settings(congestion_prediction_api_url="https://ml.example.com/predict")
 
@@ -197,6 +209,7 @@ def test_falls_back_to_heuristic_when_ml_endpoint_errors(monkeypatch, caplog):
 
 
 def test_congestion_schema_rejects_unknown_level():
+    """Verify that unknown congestion levels are rejected by the schema."""
     from app.schemas.congestion import SlotWindowCongestion
 
     with pytest.raises(ValidationError):

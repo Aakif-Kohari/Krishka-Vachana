@@ -4,6 +4,7 @@ TOMORROW = (date.today() + timedelta(days=1)).isoformat()
 
 
 def test_list_centres_returns_seed_data(client, auth_headers):
+    """Verify that listing centres returns seeded data."""
     response = client.get("/api/v1/centres", headers=auth_headers)
     assert response.status_code == 200
     body = response.json()
@@ -12,6 +13,7 @@ def test_list_centres_returns_seed_data(client, auth_headers):
 
 
 def test_list_centres_filters_by_district(client, auth_headers, centre_repo):
+    """Verify that centres can be filtered by district."""
     target_district = centre_repo.list()[0]["district"]
     response = client.get(f"/api/v1/centres?district={target_district}", headers=auth_headers)
     assert response.status_code == 200
@@ -21,6 +23,7 @@ def test_list_centres_filters_by_district(client, auth_headers, centre_repo):
 
 
 def test_list_centres_filter_is_case_insensitive(client, auth_headers, centre_repo):
+    """Verify that district filtering is case-insensitive."""
     target_district = centre_repo.list()[0]["district"]
     response = client.get(f"/api/v1/centres?district={target_district.upper()}", headers=auth_headers)
     assert response.status_code == 200
@@ -28,24 +31,28 @@ def test_list_centres_filter_is_case_insensitive(client, auth_headers, centre_re
 
 
 def test_list_centres_unknown_district_returns_empty(client, auth_headers):
+    """Verify that filtering by an unknown district returns an empty list."""
     response = client.get("/api/v1/centres?district=NoSuchDistrict", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == []
 
 
 def test_get_centre_success(client, auth_headers, seeded_centre_id):
+    """Verify that a centre can be retrieved by ID."""
     response = client.get(f"/api/v1/centres/{seeded_centre_id}", headers=auth_headers)
     assert response.status_code == 200
     assert response.json()["centre_id"] == seeded_centre_id
 
 
 def test_get_centre_not_found(client, auth_headers):
+    """Verify that fetching a non-existent centre returns 404."""
     response = client.get("/api/v1/centres/does-not-exist", headers=auth_headers)
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "not_found"
 
 
 def test_get_centre_congestion_defaults_to_low_when_no_bookings(client, auth_headers, seeded_centre_id):
+    """Verify that congestion defaults to low when no bookings exist."""
     response = client.get(
         f"/api/v1/centres/{seeded_centre_id}/congestion?slot_date={TOMORROW}", headers=auth_headers
     )
@@ -59,16 +66,19 @@ def test_get_centre_congestion_defaults_to_low_when_no_bookings(client, auth_hea
 
 
 def test_get_centre_congestion_unknown_centre_is_404(client, auth_headers):
+    """Verify that fetching congestion for an unknown centre returns 404."""
     response = client.get(f"/api/v1/centres/does-not-exist/congestion?slot_date={TOMORROW}", headers=auth_headers)
     assert response.status_code == 404
 
 
 def test_get_centre_congestion_requires_date_param(client, auth_headers, seeded_centre_id):
+    """Verify that the congestion endpoint requires a date parameter."""
     response = client.get(f"/api/v1/centres/{seeded_centre_id}/congestion", headers=auth_headers)
     assert response.status_code == 422
 
 
 def test_get_centre_congestion_reflects_real_bookings(client, auth_headers, seeded_centre_id):
+    """Verify that congestion predictions reflect actual bookings."""
     client.post(
         "/api/v1/farmers/register",
         json={

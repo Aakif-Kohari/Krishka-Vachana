@@ -14,9 +14,9 @@ This directory contains **backend only**. It does not touch:
 - ML models - AI/ML role (this backend exposes a placeholder integration
   point for their predictions once ready; see roadmap below)
 
-## Current status: Phase 3 of 4 (~75%)
+## Current status: Phase 4 of 4 (100%)
 
-Implemented so far - the first three stages of the product flow
+Implemented so far - all four stages of the product flow
 (`Farmer -> Smart Slot -> Predicted Arrival -> Dynamic Queue -> ...`),
 built to be deployable as-is rather than a throwaway prototype:
 
@@ -97,12 +97,13 @@ built to be deployable as-is rather than a throwaway prototype:
 |---|---|
 | ~~2~~ | ~~Procurement-centre listing, Smart Slot booking, congestion-prediction integration point (consumes AI/ML's endpoint)~~ done |
 | ~~3~~ | ~~Dynamic Queue system (position, printable token generation), SMS/OTP integration~~ done |
-| 4 | Payment tracking, Historical farm record, Village Cluster Booking, polish |
+| ~~4~~ | ~~Payment tracking, Historical farm record, Village Cluster Booking, polish~~ done |
 
-## API surface (Phase 1 + 2 + 3)
+## API surface (Phase 1 + 2 + 3 + 4)
 
-All endpoints are versioned under `/api/v1` and (except health) require
-`Authorization: Bearer <firebase-id-token>`.
+All endpoints are versioned under `/api/v1`. Farmer endpoints require
+`Authorization: Bearer <firebase-id-token>`; health endpoints are public, and
+the payment webhook authenticates with `X-Payment-Signature` instead.
 
 | Method | Path | Description |
 |---|---|---|
@@ -129,6 +130,11 @@ All endpoints are versioned under `/api/v1` and (except health) require
 | POST | `/api/v1/queue/{queue_id}/leave` | Cancel the farmer's own queue entry without being served |
 | GET | `/api/v1/queue/centre/{centre_id}` | Aggregate, identity-free live queue status for a centre |
 | GET | `/api/v1/queue/{queue_id}/token` | Printable token page (HTML, not in the OpenAPI schema - see below) |
+| POST | `/api/v1/bookings/cluster` | Book a Smart Slot for a village cluster (atomic batch reservation) |
+| POST | `/api/v1/payments` | Record a mock payment against a booking (development only) |
+| POST | `/api/v1/payments/webhook` | Record a signature-verified gateway payment |
+| GET | `/api/v1/payments/me` | List all payments for the authenticated farmer |
+| GET | `/api/v1/farmers/me/history` | Aggregated historical record (crops, bookings, payments) |
 
 Human-facing pages (disable in prod with `ENABLE_DOCS=false` if you don't
 want them public):
@@ -192,16 +198,24 @@ health/docs/status pages.
 
 ```bash
 docker build -t kisansetu-backend .
+test -n "${PAYMENT_GATEWAY_WEBHOOK_SECRET:-}" || { echo "PAYMENT_GATEWAY_WEBHOOK_SECRET must be set" >&2; exit 1; }
 docker run -p 8000:8000 \
   -e ENVIRONMENT=production \
   -e ENABLE_DOCS=false \
   -e AADHAAR_HMAC_SECRET_NAME=projects/PROJECT_ID/secrets/aadhaar-hmac-key/versions/1 \
+  -e PAYMENT_GATEWAY_WEBHOOK_SECRET="${PAYMENT_GATEWAY_WEBHOOK_SECRET}" \
   -e FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase.json \
   -e GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcp-service-account.json \
   -v /path/to/firebase-service-account.json:/secrets/firebase.json:ro \
   -v /path/to/gcp-service-account.json:/secrets/gcp-service-account.json:ro \
   kisansetu-backend
 ```
+
+Generate `PAYMENT_GATEWAY_WEBHOOK_SECRET` once with a cryptographically
+secure generator such as `openssl rand -base64 48`, store it in the hosting
+platform's managed secret store, and inject it under that environment-variable
+name. Do not generate it at application startup: the gateway and all backend
+instances must share the same stable value.
 
 `FIREBASE_SERVICE_ACCOUNT_PATH` only configures Firebase Admin (Firestore /
 Auth) - it does nothing for Secret Manager. `app/core/secrets.py` creates a
@@ -243,6 +257,7 @@ running ASGI process - wiring that up (e.g. via an ASGI adapter and
 & Infrastructure teammate to confirm, since they own the deployment
 pipeline per `team_work_division.md`. The Docker/Procfile paths above work
 on any container-based host in the meantime.
+
 
 ## Design notes for teammates
 

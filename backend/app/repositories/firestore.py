@@ -24,6 +24,7 @@ from app.repositories.base import (
     CropRepository,
     FarmerRepository,
     OtpVerificationResult,
+    PaymentRepository,
     QueueRepository,
     SlotBookingRepository,
 )
@@ -51,6 +52,8 @@ ACTIVE_BOOKING_QUEUE_COLLECTION = "active_booking_queue_entries"
 # per-centre token sequence number - same pattern as
 # SLOT_CAPACITY_COUNTERS_COLLECTION above. Doc id: f"{centre_id}_{date}".
 QUEUE_DAILY_COUNTERS_COLLECTION = "queue_daily_counters"
+PAYMENTS_COLLECTION = "payments"
+PAYMENT_BOOKING_RESERVATIONS_COLLECTION = "payment_booking_reservations"
 
 
 class FirestoreFarmerRepository(FarmerRepository):
@@ -64,6 +67,28 @@ class FirestoreFarmerRepository(FarmerRepository):
         """Retrieve a farmer record by ID from Firestore."""
         doc = self._client.collection(FARMERS_COLLECTION).document(farmer_id).get()
         return doc.to_dict() if doc.exists else None
+
+    def is_cluster_delegate_authorized(
+        self, delegate_id: str, farmer_ids: List[str]
+    ) -> bool:
+        """Check delegate grants stored on every requested farmer document."""
+        if not farmer_ids:
+            return False
+        farmer_collection = self._client.collection(FARMERS_COLLECTION)
+        farmer_refs = [farmer_collection.document(farmer_id) for farmer_id in farmer_ids]
+        snapshots = list(self._client.get_all(farmer_refs))
+        if len(snapshots) != len(farmer_refs):
+            return False
+        for snapshot in snapshots:
+            if not snapshot.exists:
+                return False
+            farmer = snapshot.to_dict()
+            if not isinstance(farmer, dict):
+                return False
+            grants = farmer.get("authorized_cluster_delegate_ids")
+            if not isinstance(grants, list) or delegate_id not in grants:
+                return False
+        return True
 
     def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]:
         """Retrieve a farmer record by Aadhaar hash from Firestore."""
@@ -89,6 +114,7 @@ class FirestoreFarmerRepository(FarmerRepository):
 
         @firestore.transactional
         def reserve(transaction) -> bool:
+            """Atomically reserve an Aadhaar hash for a farmer within a transaction."""
             reservation = reservation_ref.get(transaction=transaction)
             if reservation.exists:
                 return reservation.to_dict().get("farmer_id") == farmer_id
@@ -128,6 +154,7 @@ class FirestoreFarmerRepository(FarmerRepository):
 
         @firestore.transactional
         def create(transaction) -> Optional[Dict[str, Any]]:
+            """Atomically create a farmer record with Aadhaar reservation within a transaction."""
             farmer = farmer_ref.get(transaction=transaction)
             if farmer.exists:
                 return None
@@ -169,6 +196,7 @@ class FirestoreFarmerRepository(FarmerRepository):
 
         @firestore.transactional
         def issue(transaction) -> bool:
+            """Atomically issue an OTP challenge if the farmer is not in cooldown."""
             snapshot = farmer_ref.get(transaction=transaction)
             if not snapshot.exists:
                 return False
@@ -193,6 +221,7 @@ class FirestoreFarmerRepository(FarmerRepository):
 
         @firestore.transactional
         def consume(transaction) -> OtpVerificationResult:
+            """Atomically verify or consume one phone OTP attempt within a transaction."""
             snapshot = farmer_ref.get(transaction=transaction)
             if not snapshot.exists:
                 return OtpVerificationResult.NOT_FOUND
@@ -240,9 +269,19 @@ class FirestoreCropRepository(CropRepository):
         ref.set({"crop_id": crop_id, **data})
         return {"crop_id": crop_id, **data}
 
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all crops registered by a farmer from Firestore."""
-        query = self._client.collection(CROPS_COLLECTION).where("farmer_id", "==", farmer_id)
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's crops."""
+        query = (
+            self._client.collection(CROPS_COLLECTION)
+            .where(filter=FieldFilter("farmer_id", "==", farmer_id))
+            .order_by("crop_id")
+        )
+        if cursor is not None:
+            query = query.start_after({"crop_id": cursor})
+        if limit is not None:
+            query = query.limit(limit)
         return [doc.to_dict() for doc in query.stream()]
 
 
@@ -378,6 +417,7 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
 
         @firestore.transactional
         def create(transaction) -> Optional[Dict[str, Any]]:
+            """Atomically create a booking if capacity is available within a transaction."""
             existing_booking = booking_ref.get(transaction=transaction)
             if existing_booking.exists:
                 return None
@@ -407,18 +447,38 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
 
         return create(transaction)
 
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all bookings for a farmer from Firestore."""
-        query = self._client.collection(SLOT_BOOKINGS_COLLECTION).where("farmer_id", "==", farmer_id)
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's bookings."""
+        query = (
+            self._client.collection(SLOT_BOOKINGS_COLLECTION)
+            .where(filter=FieldFilter("farmer_id", "==", farmer_id))
+            .order_by("booking_id")
+        )
+        if cursor is not None:
+            query = query.start_after({"booking_id": cursor})
+        if limit is not None:
+            query = query.limit(limit)
         return [doc.to_dict() for doc in query.stream()]
 
     def cancel(self, booking_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
-        """Cancel a booking and free its slot capacity in a Firestore transaction."""
+        """
+        Cancel a farmer's booking and release its reserved slot capacity atomically.
+        
+        Parameters:
+        	booking_id (str): Identifier of the booking to cancel.
+        	farmer_id (str): Identifier of the farmer who owns the booking.
+        
+        Returns:
+        	Optional[Dict[str, Any]]: The booking record with a cancelled status, or `None` if the booking does not exist or belongs to another farmer.
+        """
         booking_ref = self._client.collection(SLOT_BOOKINGS_COLLECTION).document(booking_id)
         transaction = self._client.transaction()
 
         @firestore.transactional
         def do_cancel(transaction) -> Optional[Dict[str, Any]]:
+            """Atomically cancel a booking and release its capacity within a transaction."""
             snapshot = booking_ref.get(transaction=transaction)
             if not snapshot.exists:
                 return None
@@ -446,6 +506,92 @@ class FirestoreSlotBookingRepository(SlotBookingRepository):
             return record
 
         return do_cancel(transaction)
+
+
+    def create_batch_atomic(
+        self, booking_ids: List[str], capacity: int, data_list: List[Dict[str, Any]]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Atomically create multiple slot bookings when all requested bookings can be reserved.
+        
+        Parameters:
+            booking_ids (List[str]): Unique identifiers for the bookings to create.
+            capacity (int): Maximum number of bookings allowed for the slot.
+            data_list (List[Dict[str, Any]]): Booking data corresponding positionally to
+                `booking_ids`.
+        
+        Returns:
+            Optional[List[Dict[str, Any]]]: The created booking records, or `None` if the
+            input is empty or mismatched, capacity is insufficient, a booking ID already
+            exists, or an active booking conflicts with a requested booking.
+        """
+        if len(booking_ids) != len(data_list) or not booking_ids:
+            return None
+
+        first_data = data_list[0]
+        first_slot = (
+            first_data["centre_id"],
+            first_data["slot_date"],
+            first_data["slot_window"],
+        )
+        if any(
+            (data["centre_id"], data["slot_date"], data["slot_window"]) != first_slot
+            for data in data_list[1:]
+        ):
+            return None
+        slot_date_iso = first_data["slot_date"] if isinstance(first_data["slot_date"], str) else first_data["slot_date"].isoformat()
+        
+        counter_ref = self._client.collection(SLOT_CAPACITY_COUNTERS_COLLECTION).document(
+            _slot_counter_doc_id(first_data["centre_id"], slot_date_iso, first_data["slot_window"])
+        )
+        
+        booking_refs = [self._client.collection(SLOT_BOOKINGS_COLLECTION).document(bid) for bid in booking_ids]
+        active_refs = [
+            self._client.collection(ACTIVE_SLOT_BOOKINGS_COLLECTION).document(
+                _active_booking_doc_id(d["farmer_id"], d["centre_id"], slot_date_iso, d["slot_window"])
+            )
+            for d in data_list
+        ]
+        all_refs = booking_refs + active_refs
+        if len(set(all_refs)) != len(all_refs):
+            return None
+
+        transaction = self._client.transaction()
+
+        @firestore.transactional
+        def create_batch(transaction) -> Optional[List[Dict[str, Any]]]:
+            """
+            Atomically create a batch of slot bookings when capacity and uniqueness constraints allow it.
+            
+            Returns:
+            	List[Dict[str, Any]]: The created booking records.
+            	None: If the batch exceeds capacity or any booking or active-slot record already exists.
+            """
+            counter_doc = counter_ref.get(transaction=transaction)
+            current = counter_doc.to_dict().get("count", 0) if counter_doc.exists else 0
+            if current + len(booking_ids) > capacity:
+                return None
+
+            booking_snapshots = self._client.get_all(all_refs, transaction=transaction)
+            if any(snapshot.exists for snapshot in booking_snapshots):
+                return None
+
+            transaction.set(counter_ref, {"count": current + len(booking_ids)}, merge=True)
+            
+            created_records = []
+            for bid, data, bref, aref in zip(booking_ids, data_list, booking_refs, active_refs):
+                record = {"booking_id": bid, **data, "slot_date": slot_date_iso}
+                transaction.create(bref, record)
+                transaction.create(aref, {
+                    "booking_id": bid, "farmer_id": data["farmer_id"],
+                    "centre_id": data["centre_id"], "slot_date": slot_date_iso,
+                    "slot_window": data["slot_window"],
+                })
+                created_records.append(record)
+                
+            return created_records
+
+        return create_batch(transaction)
 
 
 def _queue_daily_counter_doc_id(centre_id: str, queue_date: str) -> str:
@@ -501,6 +647,7 @@ class FirestoreQueueRepository(QueueRepository):
 
         @firestore.transactional
         def create(transaction) -> Optional[Dict[str, Any]]:
+            """Atomically check in a farmer and assign a queue sequence number within a transaction."""
             if active_farmer_ref.get(transaction=transaction).exists:
                 return None
             if active_booking_ref.get(transaction=transaction).exists:
@@ -555,12 +702,30 @@ class FirestoreQueueRepository(QueueRepository):
     def resolve(
         self, queue_id: str, farmer_id: str, new_status: str, resolved_at: datetime
     ) -> Optional[Dict[str, Any]]:
-        """Move a farmer's own waiting entry to a terminal status and free its reservations."""
+        """
+        Resolve a farmer's waiting queue entry and release its active reservations.
+        
+        Parameters:
+            queue_id (str): Identifier of the queue entry.
+            farmer_id (str): Farmer who owns the queue entry.
+            new_status (str): Terminal status to assign to the entry.
+            resolved_at (datetime): Timestamp when the entry was resolved.
+        
+        Returns:
+            Optional[Dict[str, Any]]: The updated queue entry, or None if the entry does not exist, belongs to another farmer, or is not waiting.
+        """
         entry_ref = self._client.collection(QUEUE_ENTRIES_COLLECTION).document(queue_id)
         transaction = self._client.transaction()
 
         @firestore.transactional
         def do_resolve(transaction) -> Optional[Dict[str, Any]]:
+            """
+            Resolve the farmer's waiting queue entry with the requested status.
+            
+            Returns:
+                Optional[Dict[str, Any]]: The updated queue entry, or `None` if the
+                entry does not exist, belongs to another farmer, or is not waiting.
+            """
             snapshot = entry_ref.get(transaction=transaction)
             if not snapshot.exists:
                 return None
@@ -582,3 +747,120 @@ class FirestoreQueueRepository(QueueRepository):
             return record
 
         return do_resolve(transaction)
+
+
+class FirestorePaymentRepository(PaymentRepository):
+    """Firestore-backed implementation of PaymentRepository."""
+
+    def __init__(self, client) -> None:
+        self._client = client
+
+    def get(self, payment_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a payment by its identifier.
+        
+        Parameters:
+        	payment_id (str): The payment identifier.
+        
+        Returns:
+        	Optional[Dict[str, Any]]: The payment data, or `None` if no matching payment exists.
+        """
+        doc = self._client.collection(PAYMENTS_COLLECTION).document(payment_id).get()
+        return doc.to_dict() if doc.exists else None
+
+    def get_by_booking_id(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve the payment associated with a booking.
+        
+        Parameters:
+        	booking_id (str): Identifier of the booking.
+        
+        Returns:
+        	Optional[Dict[str, Any]]: The payment record, or `None` if no payment is found.
+        """
+        query = (
+            self._client.collection(PAYMENTS_COLLECTION)
+            .where(filter=FieldFilter("booking_id", "==", booking_id))
+            .limit(1)
+        )
+        doc = next(iter(query.stream()), None)
+        return doc.to_dict() if doc is not None else None
+
+    def create(self, payment_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a payment, or return the existing payment for its booking.
+        
+        Parameters:
+        	payment_id (str): Unique identifier for the payment.
+        	data (Dict[str, Any]): Payment fields to store.
+        
+        Returns:
+            Dict[str, Any]: The created or existing payment record, including its identifier.
+        """
+        return self.create_or_get_by_booking_id(payment_id, data)
+
+    def create_or_get_by_booking_id(
+        self, payment_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Atomically reserve a booking ID and create or return its payment."""
+        booking_id = data["booking_id"]
+        reservation_id = hashlib.sha256(booking_id.encode("utf-8")).hexdigest()
+        payment_collection = self._client.collection(PAYMENTS_COLLECTION)
+        reservation_ref = self._client.collection(
+            PAYMENT_BOOKING_RESERVATIONS_COLLECTION
+        ).document(reservation_id)
+        payment_ref = payment_collection.document(payment_id)
+        existing_query = payment_collection.where(
+            filter=FieldFilter("booking_id", "==", booking_id)
+        ).limit(1)
+        transaction = self._client.transaction()
+
+        @firestore.transactional
+        def create_or_get(transaction) -> Dict[str, Any]:
+            """Atomically create a payment or return an existing one for the booking within a transaction."""
+            reservation = reservation_ref.get(transaction=transaction)
+            if reservation.exists:
+                existing_id = reservation.to_dict()["payment_id"]
+                existing = payment_collection.document(existing_id).get(
+                    transaction=transaction
+                )
+                if not existing.exists:
+                    raise RuntimeError("Payment booking reservation is inconsistent")
+                return existing.to_dict()
+
+            legacy = next(transaction.get(existing_query), None)
+            if legacy is not None:
+                existing_record = legacy.to_dict()
+                existing_id = existing_record.get("payment_id", legacy.id)
+                transaction.create(
+                    reservation_ref,
+                    {"booking_id": booking_id, "payment_id": existing_id},
+                )
+                return {"payment_id": existing_id, **existing_record}
+
+            record = {"payment_id": payment_id, **data}
+            transaction.create(payment_ref, record)
+            transaction.create(
+                reservation_ref,
+                {"booking_id": booking_id, "payment_id": payment_id},
+            )
+            return record
+
+        return create_or_get(transaction)
+
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's payments."""
+        # TODO: Consider ordering by `processed_at` instead of `payment_id` for a more
+        # intuitive chronological display in the UI. Currently using `payment_id` (UUID)
+        # for stable, lexicographical cursor-based pagination.
+        query = (
+            self._client.collection(PAYMENTS_COLLECTION)
+            .where(filter=FieldFilter("farmer_id", "==", farmer_id))
+            .order_by("payment_id")
+        )
+        if cursor is not None:
+            query = query.start_after({"payment_id": cursor})
+        if limit is not None:
+            query = query.limit(limit)
+        return [doc.to_dict() for doc in query.stream()]

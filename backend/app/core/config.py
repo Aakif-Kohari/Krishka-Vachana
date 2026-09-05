@@ -8,8 +8,19 @@ backend needs to talk to services that already exist.
 from functools import lru_cache
 from typing import List, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_MIN_WEBHOOK_SECRET_LENGTH = 32
+_WEBHOOK_SECRET_PLACEHOLDER_MARKERS = (
+    "change-me",
+    "changeme",
+    "placeholder",
+    "replace-with",
+    "test-only",
+    "your-secret",
+)
 
 
 class Settings(BaseSettings):
@@ -64,6 +75,33 @@ class Settings(BaseSettings):
     # Deployment / docs
     app_version: str = "0.1.0"
     enable_docs: bool = True
+
+    # Phase 4: Payment Gateway Integration Point
+    payment_gateway_webhook_secret: str = ""
+
+    @model_validator(mode="after")
+    def require_secure_production_webhook_secret(self):
+        """Validate production's CSPRNG secret injected from managed storage.
+
+        Secret generation and storage provenance are deployment concerns; at
+        runtime, reject only missing, malformed, or known placeholder values.
+        """
+        if self.environment.strip().lower() != "production":
+            return self
+
+        secret = self.payment_gateway_webhook_secret
+        if not secret or secret != secret.strip():
+            raise ValueError("payment gateway webhook secret is required in production")
+        if len(secret) < _MIN_WEBHOOK_SECRET_LENGTH:
+            raise ValueError(
+                "payment gateway webhook secret must be at least "
+                f"{_MIN_WEBHOOK_SECRET_LENGTH} characters in production"
+            )
+        if any(marker in secret.lower() for marker in _WEBHOOK_SECRET_PLACEHOLDER_MARKERS):
+            raise ValueError(
+                "payment gateway webhook secret must be non-placeholder in production"
+            )
+        return self
 
     @property
     def cors_origin_list(self) -> List[str]:

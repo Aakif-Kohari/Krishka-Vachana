@@ -11,10 +11,12 @@ class _ConfiguredFailingFirebase(FirebaseState):
         return True
 
     def firestore_client(self):
+        """Mock method for Firestore client."""
         raise RuntimeError("private credential detail")
 
 
 def test_liveness_check(client):
+    """Verify that the liveness endpoint returns service information."""
     response = client.get("/api/v1/health")
     assert response.status_code == 200
     body = response.json()
@@ -25,6 +27,7 @@ def test_liveness_check(client):
 
 
 def test_readiness_check_without_firebase_configured(client):
+    """Verify that readiness check reports Firestore as not configured."""
     response = client.get("/api/v1/health/ready")
     assert response.status_code == 503
     body = response.json()
@@ -32,6 +35,7 @@ def test_readiness_check_without_firebase_configured(client):
 
 
 def test_readiness_allows_explicit_development_fallback(client):
+    """Verify that readiness allows dev fallback when configured."""
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="development", allow_dev_auth_fallback=True
     )
@@ -44,6 +48,7 @@ def test_readiness_allows_explicit_development_fallback(client):
 
 
 def test_readiness_rejects_fallback_outside_development(client):
+    """Verify that readiness rejects dev fallback in production."""
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="production", allow_dev_auth_fallback=True
     )
@@ -53,6 +58,7 @@ def test_readiness_rejects_fallback_outside_development(client):
 
 
 def test_readiness_hides_firestore_exception(client, caplog):
+    """Verify that readiness returns degraded status when Firestore errors."""
     app.dependency_overrides[get_firebase_state] = lambda: _ConfiguredFailingFirebase()
     with caplog.at_level(logging.ERROR, logger="app.health"):
         response = client.get("/api/v1/health/ready")
@@ -64,6 +70,7 @@ def test_readiness_hides_firestore_exception(client, caplog):
 
 
 def test_root(client):
+    """Verify that the root endpoint returns API information."""
     response = client.get("/")
     assert response.status_code == 200
     body = response.json()

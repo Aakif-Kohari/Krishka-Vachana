@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query, status
 
 from app.api.deps import get_current_farmer_uid, get_farmer_repository
 from app.core.config import Settings, get_settings
@@ -7,6 +9,10 @@ from app.repositories.base import FarmerRepository
 from app.schemas.farmer import FarmerCreate, FarmerOut, FarmerUpdate
 from app.schemas.otp import OtpRequestOut, OtpVerifyOut, OtpVerifyRequest
 from app.services import farmer_service, otp_service
+from app.api.deps import get_crop_repository, get_payment_repository, get_slot_booking_repository
+from app.repositories.base import CropRepository, PaymentRepository, SlotBookingRepository
+from app.schemas.history import FarmHistoryOut, FarmHistoryQuery
+from app.services import history_service
 
 router = APIRouter(prefix="/farmers", tags=["farmers"])
 
@@ -60,3 +66,22 @@ def verify_phone_otp(
 ) -> OtpVerifyOut:
     """Verify a submitted OTP code and mark the farmer's phone number as verified."""
     return otp_service.verify_otp(settings, repo, farmer_id, payload.otp_code)
+
+
+@router.get("/me/history", response_model=FarmHistoryOut)
+def get_my_history(
+    pagination: Annotated[FarmHistoryQuery, Query()],
+    farmer_uid: str = Depends(get_current_farmer_uid),
+    crop_repo: CropRepository = Depends(get_crop_repository),
+    booking_repo: SlotBookingRepository = Depends(get_slot_booking_repository),
+    payment_repo: PaymentRepository = Depends(get_payment_repository),
+) -> FarmHistoryOut:
+    """
+    Retrieve the authenticated farmer's aggregated history.
+    
+    Returns:
+        FarmHistoryOut: The farmer's crop, booking, and payment history.
+    """
+    return history_service.get_farmer_history(
+        farmer_uid, crop_repo, booking_repo, payment_repo, pagination
+    )

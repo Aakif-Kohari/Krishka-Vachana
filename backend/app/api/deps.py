@@ -19,6 +19,7 @@ from app.repositories.base import (
     CentreRepository,
     CropRepository,
     FarmerRepository,
+    PaymentRepository,
     QueueRepository,
     SlotBookingRepository,
 )
@@ -26,17 +27,32 @@ from app.repositories.memory import (
     get_memory_centre_repository,
     get_memory_crop_repository,
     get_memory_farmer_repository,
+    get_memory_payment_repository,
     get_memory_queue_repository,
     get_memory_slot_booking_repository,
 )
-
 
 def get_current_farmer_uid(
     authorization: str = Header(default=""),
     settings: Settings = Depends(get_settings),
     firebase: FirebaseState = Depends(get_firebase_state),
 ) -> str:
-    """Extract and verify the farmer's UID from the Firebase ID token in the Authorization header."""
+    """
+    Extract and verify the farmer UID from a Bearer token in the Authorization header.
+    
+    In development, an unverified token may be used as the UID when the authentication
+    fallback is enabled and Firebase is not configured.
+    
+    Parameters:
+        authorization (str): Authorization header containing a Bearer token.
+    
+    Returns:
+        str: The authenticated farmer's UID.
+    
+    Raises:
+        UnauthorizedError: If the header or token is invalid, authentication is
+            unavailable, or the token does not contain a UID.
+    """
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer":
         raise UnauthorizedError("Missing or malformed Authorization header")
@@ -137,3 +153,26 @@ def get_queue_repository(
     from app.repositories.firestore import FirestoreQueueRepository
 
     return FirestoreQueueRepository(client)
+
+def get_payment_repository(
+    firebase: FirebaseState = Depends(get_firebase_state),
+    settings: Settings = Depends(get_settings),
+) -> PaymentRepository:
+    """
+    Selects the payment repository for the current application environment.
+    
+    Returns:
+    	PaymentRepository: A Firestore-backed repository when Firestore is available; otherwise, an in-memory repository in development.
+    
+    Raises:
+    	ServiceUnavailableError: If Firestore is unavailable outside development.
+    """
+    client = firebase.firestore_client()
+    if client is None:
+        if settings.is_development:
+            return get_memory_payment_repository()
+        raise ServiceUnavailableError("Firestore is unavailable")
+    from app.repositories.firestore import FirestorePaymentRepository
+
+    return FirestorePaymentRepository(client)
+

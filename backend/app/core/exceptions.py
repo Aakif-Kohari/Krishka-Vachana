@@ -52,6 +52,13 @@ class UnauthorizedError(AppError):
     error_code = "unauthorized"
 
 
+class ForbiddenError(AppError):
+    """Exception for authenticated callers lacking permission (403)."""
+
+    status_code = status.HTTP_403_FORBIDDEN
+    error_code = "forbidden"
+
+
 class ServiceUnavailableError(AppError):
     """Exception for unavailable required infrastructure (503)."""
 

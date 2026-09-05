@@ -13,6 +13,7 @@ from app.repositories.base import (
     CropRepository,
     FarmerRepository,
     OtpVerificationResult,
+    PaymentRepository,
     QueueRepository,
     SlotBookingRepository,
 )
@@ -32,6 +33,21 @@ class InMemoryFarmerRepository(FarmerRepository):
         with self._lock:
             record = self._data.get(farmer_id)
             return dict(record) if record else None
+
+    def is_cluster_delegate_authorized(
+        self, delegate_id: str, farmer_ids: List[str]
+    ) -> bool:
+        """Check delegate grants stored on every requested farmer record."""
+        with self._lock:
+            if not farmer_ids:
+                return False
+            for farmer_id in farmer_ids:
+                grants = self._data.get(farmer_id, {}).get(
+                    "authorized_cluster_delegate_ids"
+                )
+                if not isinstance(grants, list) or delegate_id not in grants:
+                    return False
+            return True
 
     def get_by_aadhaar_hash(self, aadhaar_hash: str) -> Optional[Dict[str, Any]]:
         """Retrieve a farmer record by Aadhaar hash."""
@@ -163,10 +179,18 @@ class InMemoryCropRepository(CropRepository):
             self._data[crop_id] = record
             return dict(record)
 
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all crops registered by a farmer."""
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's crops."""
         with self._lock:
-            return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
+            records = sorted(
+                (r for r in self._data.values() if r.get("farmer_id") == farmer_id),
+                key=lambda r: r["crop_id"],
+            )
+            if cursor is not None:
+                records = [r for r in records if r["crop_id"] > cursor]
+            return [dict(r) for r in records[:limit]] if limit is not None else [dict(r) for r in records]
 
 
 # Sample procurement centres for local dev/tests, seeded until the
@@ -277,13 +301,30 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
             self._active_booking_ids[active_key] = booking_id
             return dict(record)
 
-    def list_by_farmer(self, farmer_id: str) -> List[Dict[str, Any]]:
-        """List all bookings for a farmer."""
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's bookings."""
         with self._lock:
-            return [dict(r) for r in self._data.values() if r.get("farmer_id") == farmer_id]
+            records = sorted(
+                (r for r in self._data.values() if r.get("farmer_id") == farmer_id),
+                key=lambda r: r["booking_id"],
+            )
+            if cursor is not None:
+                records = [r for r in records if r["booking_id"] > cursor]
+            return [dict(r) for r in records[:limit]] if limit is not None else [dict(r) for r in records]
 
     def cancel(self, booking_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
-        """Cancel a booking and free its slot capacity."""
+        """
+        Cancel a farmer-owned booking and release its reserved slot capacity.
+        
+        Parameters:
+            booking_id (str): Identifier of the booking to cancel.
+            farmer_id (str): Identifier of the farmer who owns the booking.
+        
+        Returns:
+            Optional[Dict[str, Any]]: The updated booking with status ``"cancelled"``, or ``None`` if the booking does not exist or belongs to another farmer.
+        """
         with self._lock:
             record = self._data.get(booking_id)
             if record is None or record.get("farmer_id") != farmer_id:
@@ -299,6 +340,66 @@ class InMemorySlotBookingRepository(SlotBookingRepository):
                 self._active_booking_ids.pop(active_key, None)
                 record["status"] = "cancelled"
             return dict(record)
+
+    def create_batch_atomic(
+        self, booking_ids: List[str], capacity: int, data_list: List[Dict[str, Any]]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Atomically creates multiple bookings when all inputs are valid, capacity is available, and no booking or farmer reservation conflicts exist.
+        
+        Parameters:
+        	booking_ids (List[str]): Unique identifiers for the bookings to create.
+        	capacity (int): Maximum number of active bookings allowed for the slot.
+        	data_list (List[Dict[str, Any]]): Booking data corresponding positionally to `booking_ids`.
+        
+        Returns:
+        	Optional[List[Dict[str, Any]]]: The created booking records, or `None` if the inputs are mismatched or empty, capacity is insufficient, or a booking conflict exists.
+        """
+        with self._lock:
+            if len(booking_ids) != len(data_list) or not booking_ids:
+                return None
+                
+            first_data = data_list[0]
+            first_slot = (
+                first_data["centre_id"],
+                first_data["slot_date"],
+                first_data["slot_window"],
+            )
+            if any(
+                (data["centre_id"], data["slot_date"], data["slot_window"])
+                != first_slot
+                for data in data_list[1:]
+            ):
+                return None
+            slot_key = _slot_key(first_data["centre_id"], first_data["slot_date"], first_data["slot_window"])
+            current = self._active_counts.get(slot_key, 0)
+            
+            if current + len(booking_ids) > capacity:
+                return None
+
+            created_records = []
+            seen_active_keys = set()
+            for bid, data in zip(booking_ids, data_list):
+                if bid in self._data:
+                    return None
+                active_key = (data["farmer_id"], *slot_key)
+                if (
+                    active_key in self._active_booking_ids
+                    or active_key in seen_active_keys
+                ):
+                    return None
+                seen_active_keys.add(active_key)
+            
+            # All checks passed, commit
+            for bid, data in zip(booking_ids, data_list):
+                record = {"booking_id": bid, **data}
+                self._data[bid] = record
+                active_key = (data["farmer_id"], *slot_key)
+                self._active_booking_ids[active_key] = bid
+                created_records.append(dict(record))
+                
+            self._active_counts[slot_key] = current + len(booking_ids)
+            return created_records
 
 
 class InMemoryQueueRepository(QueueRepository):
@@ -400,6 +501,70 @@ class InMemoryQueueRepository(QueueRepository):
             return dict(record)
 
 
+class InMemoryPaymentRepository(PaymentRepository):
+    """In-memory implementation of PaymentRepository for development and testing."""
+
+    def __init__(self) -> None:
+        """Initialize an empty in-memory payment repository with thread-safe locking."""
+        self._data: Dict[str, Dict[str, Any]] = {}
+        self._payment_ids_by_booking: Dict[str, str] = {}
+        self._lock = threading.Lock()
+
+    def get(self, payment_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a payment record by ID."""
+        with self._lock:
+            return dict(self._data.get(payment_id)) if payment_id in self._data else None
+
+    def get_by_booking_id(self, booking_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a payment record by its associated booking ID."""
+        with self._lock:
+            payment_id = self._payment_ids_by_booking.get(booking_id)
+            record = self._data.get(payment_id) if payment_id else None
+            return dict(record) if record else None
+
+    def create(self, payment_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create and store a payment, or return the existing payment for its booking.
+        
+        Parameters:
+        	payment_id (str): Unique identifier for the payment.
+        	data (Dict[str, Any]): Payment fields to include in the record.
+        
+        Returns:
+            Dict[str, Any]: A copy of the created or existing payment record.
+        """
+        return self.create_or_get_by_booking_id(payment_id, data)
+
+    def create_or_get_by_booking_id(
+        self, payment_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Create or retrieve a booking's payment while holding one lock."""
+        with self._lock:
+            existing_id = self._payment_ids_by_booking.get(data["booking_id"])
+            if existing_id is not None:
+                return dict(self._data[existing_id])
+
+            record = {"payment_id": payment_id, **data}
+            self._data[payment_id] = record
+            self._payment_ids_by_booking[data["booking_id"]] = payment_id
+            return dict(record)
+
+    def list_by_farmer(
+        self, farmer_id: str, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List a stable, optionally bounded page of a farmer's payments."""
+        # TODO: Consider ordering by `processed_at` instead of `payment_id` for a more
+        # intuitive chronological display in the UI.
+        with self._lock:
+            records = sorted(
+                (r for r in self._data.values() if r.get("farmer_id") == farmer_id),
+                key=lambda r: r["payment_id"],
+            )
+            if cursor is not None:
+                records = [r for r in records if r["payment_id"] > cursor]
+            return [dict(r) for r in records[:limit]] if limit is not None else [dict(r) for r in records]
+
+
 # Process-wide singletons so the fallback store behaves consistently across
 # requests within a single dev server run.
 _farmer_repo = InMemoryFarmerRepository()
@@ -407,6 +572,7 @@ _crop_repo = InMemoryCropRepository()
 _centre_repo = InMemoryCentreRepository()
 _slot_booking_repo = InMemorySlotBookingRepository()
 _queue_repo = InMemoryQueueRepository()
+_payment_repo = InMemoryPaymentRepository()
 
 
 def get_memory_farmer_repository() -> InMemoryFarmerRepository:
@@ -432,3 +598,8 @@ def get_memory_slot_booking_repository() -> InMemorySlotBookingRepository:
 def get_memory_queue_repository() -> InMemoryQueueRepository:
     """Return the process-wide singleton in-memory queue repository."""
     return _queue_repo
+
+
+def get_memory_payment_repository() -> InMemoryPaymentRepository:
+    """Return the process-wide singleton in-memory payment repository."""
+    return _payment_repo

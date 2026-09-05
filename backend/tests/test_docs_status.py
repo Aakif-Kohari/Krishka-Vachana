@@ -10,6 +10,7 @@ class _ConfiguredFirebase(FirebaseState):
 
 
 def test_custom_docs_page_served(client):
+    """Verify that the custom Swagger docs page is served."""
     response = client.get("/docs")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
@@ -17,17 +18,20 @@ def test_custom_docs_page_served(client):
 
 
 def test_redoc_page_served(client):
+    """Verify that the ReDoc page is served."""
     response = client.get("/redoc")
     assert response.status_code == 200
 
 
 def test_openapi_schema_available(client):
+    """Verify that the OpenAPI schema is available."""
     response = client.get("/openapi.json")
     assert response.status_code == 200
     assert response.json()["info"]["title"] == "KisanSetu API"
 
 
 def test_status_page_served(client):
+    """Verify that the status page is served."""
     response = client.get("/status")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
@@ -43,6 +47,7 @@ def test_status_page_served(client):
 
 
 def test_status_page_labels_configured_firebase(client):
+    """Verify that the status page shows Firebase as configured when available."""
     app.dependency_overrides[get_firebase_state] = lambda: _ConfiguredFirebase()
     response = client.get("/status")
     assert response.status_code == 200
@@ -51,6 +56,7 @@ def test_status_page_labels_configured_firebase(client):
 
 
 def test_status_page_labels_congestion_prediction_state(client):
+    """Verify that the status page shows congestion prediction configuration state."""
     response = client.get("/status")
     assert response.status_code == 200
     assert '<span class="badge badge-warn">using heuristic fallback</span>' in response.text
