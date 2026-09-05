@@ -184,3 +184,40 @@ def test_update_profile(client, auth_headers):
     assert response.json()["village"] == "Pandharpur"
     # Untouched fields survive the partial update.
     assert response.json()["full_name"] == "Ravi Kumar"
+
+
+def test_register_farmer_rejects_invalid_preferred_language(client, auth_headers):
+    """Verify that an unsupported preferred_language is rejected on registration."""
+    payload = {**VALID_PAYLOAD, "preferred_language": "xx"}
+    response = client.post("/api/v1/farmers/register", json=payload, headers=auth_headers)
+    assert response.status_code == 422
+
+
+def test_update_profile_rejects_invalid_preferred_language(client, auth_headers):
+    """Verify that an unsupported preferred_language is rejected on update."""
+    client.post("/api/v1/farmers/register", json=VALID_PAYLOAD, headers=auth_headers)
+    response = client.patch(
+        "/api/v1/farmers/me", json={"preferred_language": "xx"}, headers=auth_headers
+    )
+    assert response.status_code == 422
+
+
+def test_update_profile_accepts_valid_preferred_language(client, auth_headers):
+    """Verify that a supported preferred_language is accepted on update."""
+    client.post("/api/v1/farmers/register", json=VALID_PAYLOAD, headers=auth_headers)
+    response = client.patch(
+        "/api/v1/farmers/me", json={"preferred_language": "hi"}, headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert response.json()["preferred_language"] == "hi"
+
+
+def test_update_profile_accepts_explicit_null_field(client, auth_headers):
+    """Verify that explicitly sending a null field on update is a no-op, not a crash."""
+    client.post("/api/v1/farmers/register", json=VALID_PAYLOAD, headers=auth_headers)
+    response = client.patch(
+        "/api/v1/farmers/me", json={"full_name": None}, headers=auth_headers
+    )
+    assert response.status_code == 200
+    # Explicit null must not overwrite the existing value.
+    assert response.json()["full_name"] == "Ravi Kumar"

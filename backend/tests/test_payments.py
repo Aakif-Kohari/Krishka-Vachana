@@ -245,3 +245,74 @@ def test_concurrent_payment_insertions_return_one_record(payment_repo):
 
     assert records[0] == records[1]
     assert len(payment_repo.list_by_farmer("farmer-1")) == 1
+
+
+def test_get_my_payments_empty_list_when_none(client: TestClient, auth_headers):
+    """Verify GET /payments/me returns an empty list when the farmer has no payments."""
+    res = client.get("/api/v1/payments/me", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json() == []
+
+
+def test_get_my_payments_returns_only_own_payments(payment_repo, client: TestClient, auth_headers):
+    """Verify GET /payments/me only returns the authenticated farmer's own payments."""
+    now = datetime.now(timezone.utc)
+    payment_repo.create_or_get_by_booking_id(
+        "payment-mine",
+        {
+            "farmer_id": "test-farmer-uid-123",
+            "booking_id": "booking-mine",
+            "amount_paise": 100000,
+            "transaction_ref": "TXN_MINE",
+            "status": "success",
+            "processed_at": now,
+        },
+    )
+    payment_repo.create_or_get_by_booking_id(
+        "payment-other",
+        {
+            "farmer_id": "someone-else",
+            "booking_id": "booking-other",
+            "amount_paise": 200000,
+            "transaction_ref": "TXN_OTHER",
+            "status": "success",
+            "processed_at": now,
+        },
+    )
+
+    res = client.get("/api/v1/payments/me", headers=auth_headers)
+
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body) == 1
+    assert body[0]["transaction_ref"] == "TXN_MINE"
+
+
+def test_get_my_payments_pagination_with_limit_and_cursor(payment_repo, client: TestClient, auth_headers):
+    """Verify limit/cursor pagination pages through a farmer's payments without gaps or repeats."""
+    now = datetime.now(timezone.utc)
+    for i in range(3):
+        payment_repo.create_or_get_by_booking_id(
+            f"payment-{i}",
+            {
+                "farmer_id": "test-farmer-uid-123",
+                "booking_id": f"booking-{i}",
+                "amount_paise": 100000,
+                "transaction_ref": f"TXN_{i}",
+                "status": "success",
+                "processed_at": now,
+            },
+        )
+
+    first_page = client.get("/api/v1/payments/me?limit=2", headers=auth_headers)
+    assert first_page.status_code == 200
+    first_body = first_page.json()
+    assert len(first_body) == 2
+    assert [p["payment_id"] for p in first_body] == ["payment-0", "payment-1"]
+
+    second_page = client.get(
+        f"/api/v1/payments/me?limit=2&cursor={first_body[-1]['payment_id']}", headers=auth_headers
+    )
+    assert second_page.status_code == 200
+    second_body = second_page.json()
+    assert [p["payment_id"] for p in second_body] == ["payment-2"]

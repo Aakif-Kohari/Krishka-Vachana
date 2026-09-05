@@ -88,3 +88,12 @@ def test_list_crops_for_farmer(client, auth_headers):
     body = response.json()
     assert len(body) == 2
     assert {c["crop_type"] for c in body} == {"wheat", "paddy"}
+
+
+def test_register_crop_invalid_crop_type(client, auth_headers):
+    """Verify that an unrecognized crop_type is rejected."""
+    _register_farmer(client, auth_headers)
+    response = client.post(
+        "/api/v1/crops", json={"crop_type": "banana", "quantity_quintals": 5}, headers=auth_headers
+    )
+    assert response.status_code == 422
