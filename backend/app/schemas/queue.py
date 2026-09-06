@@ -17,10 +17,12 @@ farmer checks themselves in, and later marks their own entry "served"
 than a centre operator doing it on their behalf. A dedicated operator-
 facing flow is a natural future phase once that role/app surface exists.
 """
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+from app.core.time import utcnow
 
 QUEUE_STATUSES = ["waiting", "served", "left"]
 
@@ -63,8 +65,3 @@ class QueueCentreStatusOut(BaseModel):
     centre_id: str
     waiting_count: int
     estimated_wait_minutes: int
-
-
-def utcnow() -> datetime:
-    """Return the current UTC datetime."""
-    return datetime.now(timezone.utc)

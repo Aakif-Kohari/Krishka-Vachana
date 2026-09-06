@@ -1,4 +1,4 @@
-# KisanSetu Backend (Krishka Vachana - SIH26032)
+# Krishka Vachana Backend (SIH26032)
 
 Backend API for the project, owned by the Backend role (see
 `team_work_division.md` at the repo root). Built with **FastAPI + Python**,
@@ -175,9 +175,12 @@ OTP codes, are never written to logs or returned in the API response.
 ## Running tests
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 pytest -q
 ```
+
+(`requirements-dev.txt` pulls in `requirements.txt` plus `pytest`/`pytest-asyncio`.
+The production Docker image installs only `requirements.txt` - see Dockerfile.)
 
 149 test functions / 161 parametrized test cases currently pass, covering registration validation (including
 Aadhaar/phone format checks and duplicate-registration handling), profile
@@ -197,7 +200,7 @@ health/docs/status pages.
 ### Docker (any container host: Cloud Run, Fly.io, Render, ECS, etc.)
 
 ```bash
-docker build -t kisansetu-backend .
+docker build -t krishka-vachana-backend .
 test -n "${PAYMENT_GATEWAY_WEBHOOK_SECRET:-}" || { echo "PAYMENT_GATEWAY_WEBHOOK_SECRET must be set" >&2; exit 1; }
 docker run -p 8000:8000 \
   -e ENVIRONMENT=production \
@@ -208,7 +211,7 @@ docker run -p 8000:8000 \
   -e GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcp-service-account.json \
   -v /path/to/firebase-service-account.json:/secrets/firebase.json:ro \
   -v /path/to/gcp-service-account.json:/secrets/gcp-service-account.json:ro \
-  kisansetu-backend
+  krishka-vachana-backend
 ```
 
 Generate `PAYMENT_GATEWAY_WEBHOOK_SECRET` once with a cryptographically
